@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+src-tauri/target/
+src-tauri/gen/
+
+# Markdown files at root (except README)
+/*.md
+!/README.md
+
+# Tooling
+.serena/
+
+# Env
+.env
+.env.*
+
+# Editor / OS
+.vscode/
+.idea/
+.DS_Store
+*.swp
+
+# Logs
+*.log
+npm-debug.log*
