@@ -3,6 +3,9 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "engines": {
+    "node": "22.x"
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -29,6 +32,7 @@
     "markdown-it-admonition": "^1.0.4",
     "markdown-it-footnote": "^4.0.0",
     "mermaid": "^11.16.0",
+    "serve": "^14.2.6",
     "thememirror": "^2.0.1",
     "turndown": "^7.2.4",
     "turndown-plugin-gfm": "^1.0.2"
