@@ -265,14 +265,16 @@ describe("coquille : police, icône copier, barre, marque de démarrage", () => 
     }
   });
 
-  it("setFont, stockage plein → erreur remontée, police inchangée", async () => {
+  it("setFont, stockage plein → erreur remontée dans l'alerte unique, police inchangée", async () => {
     localStorage.clear();
     const { f } = await reload();
+    const { storageError } = await import("./draft");
     const w = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
       throw new DOMException("plein", "QuotaExceededError");
     });
     try {
-      expect(() => f.setFont("georgia")).toThrow(/QuotaExceededError/);
+      expect(() => f.setFont("georgia")).not.toThrow();
+      expect(get(storageError)).toContain("QuotaExceededError");
       expect(get(f.font)).toBe("inter");
       expect(contentVar()).toBe("var(--leef-font-ui)");
     } finally {

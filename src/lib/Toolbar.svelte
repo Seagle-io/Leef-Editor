@@ -308,7 +308,7 @@
   <div class="menu-wrapper" bind:this={fontWrapper}>
     <button on:click={() => toggleMenu("font")} aria-haspopup="true" aria-expanded={openMenu === "font"} aria-label="Police">
       <Icon name="font" size="1rem" />
-      {fonts.find((f) => f.id === $font)?.label}
+      {fonts.find((f) => f.id === $font)?.label ?? ""}
     </button>
     {#if openMenu === "font"}
       <div class="menu-panel">
