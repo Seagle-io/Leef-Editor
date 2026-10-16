@@ -64,3 +64,23 @@ describe("V6 accent lisible sur toutes les surfaces", () => {
     }
   });
 });
+
+/** Alerte unique (App.svelte) : --leef-danger sur --leef-danger-bg ; défauts de tokens.css. */
+const DANGER: Record<Scheme, Record<"danger" | "danger-bg", string>> = {
+  light: { danger: "#c4161c", "danger-bg": "#fcebec" },
+  dark: { danger: "#ff6b63", "danger-bg": "#3a1d1e" },
+};
+
+describe("J4 alerte lisible dans les thèmes intégrés", () => {
+  it("danger sur danger-bg : 5 thèmes × clair/sombre → ≥ 4.5", () => {
+    expect(BUILTIN_THEMES).toHaveLength(5);
+    for (const t of BUILTIN_THEMES) {
+      for (const scheme of SCHEMES) {
+        const colors = t.overrides[scheme] ?? {};
+        const fg = colors.danger ?? DANGER[scheme].danger;
+        const bg = colors["danger-bg"] ?? DANGER[scheme]["danger-bg"];
+        expect(contrastRatio(fg, bg), `${t.id} ${scheme} ${fg} sur ${bg}`).toBeGreaterThanOrEqual(4.5);
+      }
+    }
+  });
+});

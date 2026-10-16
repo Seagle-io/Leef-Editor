@@ -142,7 +142,38 @@ describe("scanWikiRefs", () => {
     expect(raws("> p\ncont\n    [[a]]")).toEqual(["a"]);
     expect(raws(">\t[[a]]")).toEqual(["a"]);
     expect(raws("> [[a]]\n\n    [[b]]")).toEqual(["a"]);
-    expect(raws(">".repeat(100_000) + " [[a]]")).toEqual(["a"]);
+    expect(raws(">".repeat(99) + " [[a]]")).toEqual(["a"]);
+    expect(raws(">".repeat(100_000) + " [[a]]")).toEqual([]); // au-delà de maxNesting (100), l'aperçu ne rend rien (T038 D9)
+  });
+
+  it("markdown-it decides what is code, inside items and quotes too (T038 D9, T036 I1 I3 I4)", () => {
+    // I1 : fence ouverte sur la ligne-marqueur d'un item, le reste du fichier est lu
+    expect(raws("- ```\n  [[a]]\n  ```\n\n[[b]]\n")).toEqual(["b"]);
+    expect(raws("- ```\n  code\n  ```\n\nVoir [[X]]\n")).toEqual(["X"]);
+    expect(raws("1. ~~~\n   [[a]]\n   ~~~\n[[b]]")).toEqual(["b"]);
+    expect(raws("> - ```\n>   [[a]]\n>   ```\n[[b]]")).toEqual(["b"]);
+    // I3 : citation, ligne paresseuse, ligne citée indentée = continuation du paragraphe
+    expect(raws("> T\nsuite\n>     [[X]]\n")).toEqual(["X"]);
+    expect(raws("> T\n=\n>     [[a]]\n")).toEqual(["a"]);
+    // I4 : marqueurs empilés sur une ligne, le code indenté qui suit reste du code
+    for (const code of ["- - # T\n        [[X]]\n", "* - ***\n        [[a]]\n", "- 1. # T\n         [[a]]\n", "- > # T\n\t\t[[a]]\n"])
+      expect(raws(code), JSON.stringify(code)).toEqual([]);
+    expect(raws("* - T\n  ==\n\t\t[[a]]\n")).toEqual(["a"]);
+    // aperçu : `\pagebreak` est un bloc, maxNesting coupe la fin, une note de bas de page sans appel n'est pas rendue
+    expect(raws("\\pagebreak\n    [[a]]\n[[b]]")).toEqual(["b"]);
+    expect(raws("> ".repeat(200) + "[[a]]")).toEqual([]);
+    expect(raws("[^1]: [[a]]\n")).toEqual([]);
+    expect(raws("x[^1]\n\n[^1]: [[a]]\n")).toEqual(["a"]);
+  });
+
+  it("CR alone and CRLF: offsets and lines point into the original text (T038 D9)", () => {
+    for (const eol of ["\r", "\r\n", "\n"]) {
+      const s = ["T", "--", "    [[a]]", "x [[b]]", "```", "[[c]]", "```", "> [[d|D]]"].join(eol);
+      const refs = scanWikiRefs(s);
+      expect(refs.map((r) => [r.raw, r.line]), JSON.stringify(eol)).toEqual([["b", 3], ["d|D", 7]]);
+      for (const r of refs) expect(s.slice(r.from, r.to)).toBe(`[[${r.raw}]]`);
+    }
+    expect(raws("[[a\rb]] [[c]]")).toEqual(["c"]);
   });
 
   it("ignores escapes and embeds", () => {

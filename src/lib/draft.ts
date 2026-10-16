@@ -1,4 +1,4 @@
-import { writable, type Readable } from "svelte/store";
+import { derived, writable, type Readable } from "svelte/store";
 import { createDoc, type Doc } from "./documents";
 
 const STORAGE_KEY = "gmd-draft";
@@ -9,12 +9,33 @@ interface StoredSession {
   activeIndex: number;
 }
 
-const lastError = writable<string | null>(null);
-/** Last local storage failure outside themes (tabs, page, panes, preview): the setting then lives in memory for this session. */
-export const storageError: Readable<string | null> = { subscribe: lastError.subscribe };
+/** What a local storage failure concerns: each one keeps its own message, cleared by its next successful write. */
+export type Source = "onglets" | "page" | "volets" | "apercu" | "police" | "theme";
+
+let errors: Record<Source, string | null> = { onglets: null, page: null, volets: null, apercu: null, police: null, theme: null };
+const lastErrors = writable(errors);
+/** Last local storage failure of each source: the setting then lives in memory for this session. */
+export const storageErrors: Readable<Record<Source, string | null>> = { subscribe: lastErrors.subscribe };
+
+function setError(source: Source, message: string | null): void {
+  if (errors[source] === message) return;
+  errors = { ...errors, [source]: message };
+  lastErrors.set(errors);
+}
+
+export function signalerErreur(source: Source, action: string, e: unknown): void {
+  setError(source, `${action} (${e instanceof Error ? `${e.name} : ${e.message}` : String(e)}).`);
+}
+
+export function effacerErreur(source: Source): void {
+  setError(source, null);
+}
+
+/** Compatibility (font.ts): the "police" source. */
+export const storageError: Readable<string | null> = derived(lastErrors, (e) => e.police);
 
 export function reportStorageError(action: string, e: unknown): void {
-  lastError.set(`${action} (${e instanceof Error ? `${e.name} : ${e.message}` : String(e)}).`);
+  signalerErreur("police", action, e);
 }
 
 /**
@@ -53,7 +74,7 @@ export function loadSession(): { docs: Doc[]; activeIndex: number } | null {
       if (docs.length > 0) return { docs, activeIndex };
     } catch (e) {
       // Corrupted session: fall through to the legacy draft.
-      reportStorageError("Onglets de la dernière session illisibles, session ignorée", e);
+      signalerErreur("onglets", "Onglets de la dernière session illisibles, session ignorée", e);
     }
   }
 
@@ -69,6 +90,8 @@ export function saveSession(docs: Doc[], activeIndex: number): void {
   try {
     localStorage.setItem(SESSION_KEY, JSON.stringify(session));
   } catch (e) {
-    reportStorageError("Enregistrement des onglets impossible : les dernières modifications ne seront pas restaurées au prochain démarrage", e);
+    signalerErreur("onglets", "Enregistrement des onglets impossible : les dernières modifications ne seront pas restaurées au prochain démarrage", e);
+    return;
   }
+  effacerErreur("onglets");
 }

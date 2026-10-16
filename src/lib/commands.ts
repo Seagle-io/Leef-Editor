@@ -123,8 +123,9 @@ export function matchShortcut(e: KeyboardEvent, keys: string): boolean {
   if (e.shiftKey !== parts.includes("Shift") || e.altKey !== parts.includes("Alt")) return false;
   // A single letter also matches on e.code when e.key is no ASCII letter: Alt rewrites it on macOS ("ƒ" for Alt-f),
   // non-Latin layouts give "ы" for Ctrl+S. An ASCII letter is trusted: e.code is the physical QWERTY key (AZERTY Mod-z is code KeyW).
-  // With Alt, a printable non-letter is what Windows AltGr (Ctrl+Alt) types, "[" for Hungarian AltGr+F: never a shortcut.
-  const fallback = e.altKey ? !/^\P{L}$/u.test(e.key) : !/^[a-z]$/i.test(e.key);
+  // With Alt off macOS, a printable non-letter is what Windows AltGr (Ctrl+Alt) types, "[" for Hungarian AltGr+F: never a shortcut.
+  // macOS has no AltGr: ⌘⌥F stays Mod-Alt-f whatever ⌥F types ("[" on Apple Hungarian).
+  const fallback = e.altKey && !mac ?!/^\P{L}$/u.test(e.key) : !/^[a-z]$/i.test(e.key);
   return e.key.toLowerCase() === key.toLowerCase() || (fallback && key.length === 1 && e.code === `Key${key.toUpperCase()}`);
 }
 

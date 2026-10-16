@@ -1,3 +1,7 @@
+import MarkdownIt from "markdown-it";
+import footnote from "markdown-it-footnote";
+import admonition from "markdown-it-admonition";
+
 export interface WikiTarget {
   raw: string;
   target: string;
@@ -16,13 +20,28 @@ export const NOTE_FILE = /\.(md|markdown)$/i;
 const INNER_MAX = 512;
 const FENCE_OPEN = /^ {0,3}(`{3,}|~{3,})([^\n]*)$/;
 const FENCE_CLOSE = /^ {0,3}(`{3,}|~{3,})[ \t\r]*$/;
-const BLANK = /^[ \t\r]*$/;
 const HEADING = /^ {0,3}#{1,6}(?:[ \t]+([^\n]*))?$/;
 const HEADING_CLOSE = /(?:^|[ \t]+)#+[ \t]*$/;
 const TOKEN = /[`\\[]/g;
-const LINE_START = /^([ \t]*)(?:([-+*]|\d{1,9}[.)])([ \t]+|$))?/;
-const RULE = /^([-*_])(?:[ \t]*\1){2,}[ \t\r]*$/;
-const SETEXT = /^(?:=+|-+)[ \t\r]*$/;
+const EOL = /\r\n?|\n/g;
+
+/** Mêmes règles de bloc que l'aperçu (markdown.ts) : markdown-it seul juge de ce qui est du code (D9). */
+function blockParser(): MarkdownIt {
+  const md = new MarkdownIt().use(footnote).use(admonition);
+  // Saut de page de markdown.ts : un bloc, le code indenté qui suit reste du code.
+  md.block.ruler.before("hr", "pagebreak", (state, startLine, _endLine, silent) => {
+    const line = state.src.slice(state.bMarks[startLine] + state.tShift[startLine], state.eMarks[startLine]).trim();
+    if (line !== "\\pagebreak" && line !== "\\newpage") return false;
+    if (!silent) state.line = startLine + 1;
+    return true;
+  });
+  return md;
+}
+
+const md = blockParser();
+// Sans phase inline, 3 fois plus rapide ; elle ne sert qu'à savoir quelles notes de bas de page sont appelées (les autres ne sont pas rendues).
+const blocksOnly = blockParser();
+blocksOnly.core.ruler.disable("inline");
 
 export function noteKey(s: string): string {
   return s
@@ -36,7 +55,7 @@ export function noteKey(s: string): string {
 }
 
 export function parseWikiInner(inner: string): WikiTarget | null {
-  if (inner.length > INNER_MAX || /[\n[\]]/.test(inner)) return null;
+  if (inner.length > INNER_MAX || /[\r\n[\]]/.test(inner)) return null;
   const text = inner.trim();
   if (text === "") return null;
   const bar = text.indexOf("|");
@@ -57,7 +76,6 @@ export function aliasBar(raw: string): string {
 
 interface Line {
   text: string;
-  start: number;
   fenced: boolean;
 }
 
@@ -80,43 +98,12 @@ function* lines(content: string): Generator<Line> {
         fenced = true;
       }
     }
-    yield { text, start, fenced };
+    yield { text, fenced };
     start = end + 1;
   }
 }
 
-/** Colonne atteinte après `s` depuis `col` (tabulation : multiple de 4 suivant). */
-function column(s: string, col = 0): number {
-  for (const ch of s) col = ch === "\t" ? col + 4 - (col % 4) : col + 1;
-  return col;
-}
-
-interface Quote {
-  depth: number;
-  from: number; // début du contenu dans la ligne
-  at: number; // colonne de line[from]
-  content: number; // colonne où commence le contenu (le blanc après « > » compte pour 1, même pris dans une tabulation)
-}
-
-/** Marqueurs de citation « > » en tête de ligne. */
-function unquote(text: string): Quote {
-  const q: Quote = { depth: 0, from: 0, at: 0, content: 0 };
-  for (;;) {
-    let i = q.from;
-    while (i - q.from < 3 && text[i] === " ") i++;
-    if (text[i] !== ">") return q;
-    q.depth++;
-    q.at += i - q.from + 1;
-    q.from = i + 1;
-    if (text[q.from] === " ") {
-      q.from++;
-      q.at++;
-    }
-    q.content = q.at + (text[q.from] === "\t" ? 1 : 0);
-  }
-}
-
-/** Liens d'un bloc de paragraphe hors fences : saute code inline et échappements. */
+/** Liens d'un bloc de texte inline : saute code inline et échappements. */
 function scanBlock(s: string, offset: number, lineAt: (pos: number) => number, out: WikiRef[]): void {
   const noCloser = new Set<number>();
   let closeAt = -2;
@@ -167,68 +154,22 @@ function scanBlock(s: string, offset: number, lineAt: (pos: number) => number, o
 }
 
 export function scanWikiRefs(content: string): WikiRef[] {
-  const starts: number[] = [];
-  const blocks: { from: number; to: number }[] = [];
-  let block: { from: number; to: number } | null = null;
-  const items: number[] = []; // retrait du contenu des items de liste ouverts
-  let quoted = 0; // profondeur de citation de la ligne précédente
-  let paragraph = 0; // profondeur de citation du paragraphe ouvert : moins citée, une ligne n'en est qu'une continuation paresseuse
-  for (const line of lines(content)) {
-    starts.push(line.start);
-    if (line.fenced) {
-      block = null;
-      continue;
-    }
-    const q = unquote(line.text);
-    if (q.depth !== quoted) {
-      if (q.depth > quoted) block = null; // une citation ouvre un conteneur ; en sortir sans ligne vide = continuation paresseuse
-      items.length = 0;
-      quoted = q.depth;
-    }
-    const text = line.text.slice(q.from).replace(/\r$/, ""); // CRLF : markdown-it normalise les fins de ligne
-    if (BLANK.test(text)) {
-      block = null;
-      continue;
-    }
-    const m = LINE_START.exec(text);
-    const lead = m?.[1] ?? "";
-    const indent = column(lead, q.at) - q.content;
-    const body = text.slice(lead.length);
-    // Ligne dans le conteneur du paragraphe ouvert (ni paresseuse, ni sortie d'un item) : seule à pouvoir le souligner (setext = ou -).
-    const inParagraph = block !== null && q.depth === paragraph && indent >= (items.length > 0 ? items[items.length - 1] : 0);
-    // Un marqueur seul n'interrompt pas un paragraphe : la ligne le continue.
-    const item = m?.[2] !== undefined && !(inParagraph && BLANK.test(text.slice(m[0].length))) ? m : null;
-    // Titre ATX, filet ou soulignement setext : ferment le paragraphe, le code indenté suivant reste du code.
-    const ends = HEADING.test(body) || RULE.test(body) || (inParagraph && SETEXT.test(body));
-    if (!block || item || ends) while (items.length > 0 && indent < items[items.length - 1]) items.pop();
-    const base = items.length > 0 ? items[items.length - 1] : 0;
-    if (indent >= base + 4) {
-      if (!block) continue; // bloc de code indenté (§1.1) : ne coupe pas un paragraphe
-    } else if (ends) {
-      if (HEADING.test(body)) blocks.push({ from: line.start, to: line.start + line.text.length });
-      block = null;
-      continue;
-    } else if (item) {
-      const at = column(lead + item[2], q.at);
-      const gap = column(item[3], at) - at;
-      const marker = at - q.content;
-      items.push(gap === 0 || gap > 4 ? marker + 1 : marker + gap);
-      // Item vide, ou qui s'ouvre sur du code indenté, un titre ou un filet : pas de paragraphe, le code indenté suivant reste du code.
-      const rest = text.slice(item[0].length);
-      if (BLANK.test(rest) || gap > 4 || HEADING.test(rest) || RULE.test(rest)) {
-        if (HEADING.test(rest)) blocks.push({ from: line.start, to: line.start + line.text.length });
-        block = null;
-        continue;
-      }
-    }
-    if (block) {
-      block.to = line.start + line.text.length;
-    } else {
-      block = { from: line.start, to: line.start + line.text.length };
-      paragraph = q.depth;
-      blocks.push(block);
-    }
+  // Débuts de ligne comptés comme markdown-it (\r\n, \r ou \n), décalages dans le texte d'origine.
+  const starts = [0];
+  for (const m of content.matchAll(EOL)) starts.push(m.index + m[0].length);
+  // Lignes de chaque jeton inline rendu ; une cellule de tableau prend celles de sa ligne.
+  const blocks: [number, number][] = [];
+  const maps: ([number, number] | null)[] = [];
+  const env: { footnotes?: unknown } = {};
+  const tokens = blocksOnly.parse(content, env);
+  for (const token of env.footnotes === undefined ? tokens : md.parse(content, {})) {
+    if (token.nesting === -1) maps.pop();
+    const map = token.map ?? maps[maps.length - 1] ?? null;
+    if (token.nesting === 1) maps.push(map);
+    // markdown-it-admonition donne au titre la plage [ligne, ligne - 1].
+    if (token.type === "inline" && map) blocks.push([map[0], Math.max(map[1], map[0] + 1)]);
   }
+  blocks.sort((a, b) => a[0] - b[0]); // les notes de bas de page sont rendues en fin de document
   const lineAt = (pos: number): number => {
     let lo = 0;
     let hi = starts.length - 1;
@@ -240,7 +181,12 @@ export function scanWikiRefs(content: string): WikiRef[] {
     return lo;
   };
   const out: WikiRef[] = [];
-  for (const b of blocks) scanBlock(content.slice(b.from, b.to), b.from, lineAt, out);
+  let done = 0;
+  for (const [from, to] of blocks) {
+    if (from < done) continue; // cellules d'une même ligne de tableau
+    scanBlock(content.slice(starts[from], starts[to] ?? content.length), starts[from], lineAt, out);
+    done = to;
+  }
   return out;
 }
 

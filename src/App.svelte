@@ -7,7 +7,7 @@
   import Explorer from "./lib/Explorer.svelte";
   import { openFile, saveFile, exportHtml, exportOffice, type ExportContext } from "./lib/fileio";
   import { renderDocument, generateTocMarkdown } from "./lib/markdown";
-  import { loadSession, saveSession, storageError } from "./lib/draft";
+  import { loadSession, saveSession, storageErrors } from "./lib/draft";
   import { themeState } from "./lib/themes/store";
   import { recentStorageError } from "./lib/commands";
   import { theme } from "./lib/theme";
@@ -91,8 +91,10 @@ console.log("hello gmd");
   let sessionSaveHandle: ReturnType<typeof setTimeout> | undefined;
   let activeHeadingLevel: number | null = null;
   let focusMode = false;
-  /** Storage alert closed by the user: hidden until its text changes. */
-  let dismissedStorage: string | null = null;
+  /** Per alert source: last message and its occurrence (a message appearing or changing counts one more). */
+  const storageOccurrences = new Map<string, { message: string | null; n: number }>();
+  /** Occurrence closed by the user, per source: hidden until that source fails again. */
+  let dismissedStorage: Record<string, number> = {};
 
   function toggleFocusMode() {
     focusMode = !focusMode;
@@ -103,9 +105,23 @@ console.log("hello gmd");
   $: documentTitle = $activeDoc ? docTitle($activeDoc) : "Sans titre";
   $: wordCount = content.trim() === "" ? 0 : content.trim().split(/\s+/).length;
   $: readingMinutes = Math.max(1, Math.round(wordCount / 200));
-  $: storageMessages = [$themeState.error, $storageError, $recentStorageError].filter((m): m is string => m !== null);
-  $: storageAlert = storageMessages.join("\n");
-  $: if (storageAlert === "") dismissedStorage = null;
+  $: storageLines = countOccurrences([["themes", $themeState.error], ...Object.entries($storageErrors), ["recentes", $recentStorageError]]);
+  $: visibleStorage = storageLines.filter((line) => dismissedStorage[line.source] !== line.n);
+
+  function countOccurrences(sources: [string, string | null][]): { source: string; message: string; n: number }[] {
+    const lines = [];
+    for (const [source, message] of sources) {
+      const last = storageOccurrences.get(source);
+      const n = (last?.n ?? 0) + (message !== null && message !== last?.message ? 1 : 0);
+      storageOccurrences.set(source, { message, n });
+      if (message !== null) lines.push({ source, message, n });
+    }
+    return lines;
+  }
+
+  function dismissStorage() {
+    dismissedStorage = { ...dismissedStorage, ...Object.fromEntries(visibleStorage.map((line) => [line.source, line.n])) };
+  }
 
   function persistSession() {
     clearTimeout(sessionSaveHandle);
@@ -363,14 +379,14 @@ console.log("hello gmd");
   {#if error}
     <p class="error" role="alert">{error}</p>
   {/if}
-  {#if storageAlert !== "" && storageAlert !== dismissedStorage}
+  {#if visibleStorage.length > 0}
     <div class="error storage-alert" role="alert">
       <div>
-        {#each storageMessages as message}
-          <p>{message}</p>
+        {#each visibleStorage as line (line.source)}
+          <p>{line.message}</p>
         {/each}
       </div>
-      <button class="storage-alert-close" on:click={() => (dismissedStorage = storageAlert)} aria-label="Fermer l'alerte">✕</button>
+      <button class="storage-alert-close" on:click={dismissStorage} aria-label="Fermer l'alerte">✕</button>
     </div>
   {/if}
   <div class="panes">
@@ -446,6 +462,12 @@ console.log("hello gmd");
   }
   .pane:last-child {
     border-right: none;
+  }
+  /* Narrow window: the outline's fixed width left the editor a few pixels and covered its lines; the toolbar's table of contents stays. */
+  @media (max-width: 640px) {
+    .panes :global(nav.outline) {
+      display: none;
+    }
   }
   /* Printing targets the preview only: the editor, the toolbar, the tab bar,
      the explorer and the outline are chrome, not document. */

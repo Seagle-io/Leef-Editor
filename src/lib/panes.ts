@@ -3,7 +3,7 @@
  * a chosen layout survives a restart.
  */
 import { writable } from "svelte/store";
-import { reportStorageError } from "./draft";
+import { effacerErreur, signalerErreur } from "./draft";
 
 export type PaneId = "explorer" | "editor" | "preview" | "outline";
 
@@ -22,7 +22,7 @@ function load(): Record<PaneId, boolean> {
     const raw = localStorage.getItem(STORAGE_KEY);
     stored = raw ? JSON.parse(raw) : null;
   } catch (e) {
-    reportStorageError("Disposition des volets illisible : disposition par défaut", e);
+    signalerErreur("volets", "Disposition des volets illisible : disposition par défaut", e);
     return { ...defaults };
   }
   const saved = typeof stored === "object" && stored !== null ? (stored as Record<string, unknown>) : {};
@@ -42,8 +42,10 @@ panes.subscribe((value) => {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(value));
   } catch (e) {
-    reportStorageError("Enregistrement de la disposition des volets impossible : disposition gardée pour cette session seulement", e);
+    signalerErreur("volets", "Enregistrement de la disposition des volets impossible : disposition gardée pour cette session seulement", e);
+    return;
   }
+  effacerErreur("volets");
 });
 
 export function togglePane(id: PaneId): void {

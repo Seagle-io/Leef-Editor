@@ -13,7 +13,7 @@ export interface FontOption {
 export const fonts: FontOption[] = [
   { id: "inter", label: "Système", stack: "var(--leef-font-ui)" },
   { id: "georgia", label: "Georgia", stack: 'Georgia, "Times New Roman", serif' },
-  { id: "jetbrains-mono", label: "JetBrains Mono", stack: '"JetBrains Mono", "Fira Code", Consolas, monospace' },
+  { id: "jetbrains-mono", label: "Monospace", stack: "var(--leef-font-mono)" },
 ];
 
 /** Préréglage `contentFont` du thème porté par chaque police de la barre. */

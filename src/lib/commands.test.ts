@@ -275,6 +275,22 @@ describe("matchShortcut", () => {
     expect(m.matchShortcut(key({ key: "ƒ", code: "KeyF", metaKey: true, altKey: true }), "Mod-Alt-f")).toBe(true);
   });
 
+  it("macOS ⌘⌥F runs Mod-Alt-f whatever ⌥F types: the AltGr rule is Windows only (T036 I2)", () => {
+    platform("MacIntel");
+    for (const typed of ["[", "©", "ƒ", "Dead", "f"])
+      expect(m.matchShortcut(key({ key: typed, code: "KeyF", metaKey: true, altKey: true }), "Mod-Alt-f"), typed).toBe(true);
+    expect(m.matchShortcut(key({ key: "[", code: "KeyF", altKey: true }), "Mod-Alt-f")).toBe(false);
+    expect(m.matchShortcut(key({ key: "[", code: "KeyF", ctrlKey: true, altKey: true }), "Mod-Alt-f")).toBe(false);
+    const search = vi.fn();
+    unregister = m.registerCommands([cmd("folder.search", { shortcut: { keys: "Mod-Alt-f", scope: "global" }, run: search })]);
+    const hungarian = key({ key: "[", code: "KeyF", metaKey: true, altKey: true });
+    expect(m.handleGlobalKeydown(hungarian)).toBe(true);
+    expect(hungarian.preventDefault).toHaveBeenCalled();
+    expect(search).toHaveBeenCalledTimes(1);
+    platform("Win32");
+    expect(m.matchShortcut(key({ key: "[", code: "KeyF", ctrlKey: true, altKey: true }), "Mod-Alt-f")).toBe(false);
+  });
+
   it("AZERTY Ctrl+Z does not run the Mod-w global command (T013 D2)", () => {
     const close = vi.fn();
     unregister = m.registerCommands([cmd("file.close", { shortcut: { keys: "Mod-w", scope: "global" }, run: close })]);

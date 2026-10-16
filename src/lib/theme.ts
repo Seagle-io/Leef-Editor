@@ -1,4 +1,6 @@
-import { writable } from "svelte/store";
+import { derived, type Readable } from "svelte/store";
+import { effacerErreur, signalerErreur } from "./draft";
+import { activeTheme, scheme, selectTheme } from "./themes/store";
 
 export type ThemeId = "light" | "dark" | "dracula" | "solarized";
 
@@ -14,9 +16,6 @@ export const themes: ThemeOption[] = [
   { id: "solarized", label: "Solarized" },
 ];
 
-const THEME_IDS = themes.map((t) => t.id);
-const STORAGE_KEY = "gmd-theme";
-
 /** Provisoire jusqu'à L04/L13 : les thèmes à palette propre se replient sur clair/sombre. */
 const DATA_THEME: Record<ThemeId, "light" | "dark"> = {
   light: "light",
@@ -29,32 +28,21 @@ export function dataThemeOf(id: ThemeId): "light" | "dark" {
   return DATA_THEME[id];
 }
 
-function isThemeId(value: string | null): value is ThemeId {
-  return value !== null && (THEME_IDS as string[]).includes(value);
-}
+/** Built-in themes the toolbar names; leef-auto and user themes follow the scheme the store applied. */
+const BUILTIN_IDS: Record<string, ThemeId> = {
+  "leef-light": "light",
+  "leef-dark": "dark",
+  "leef-dracula": "dracula",
+  "leef-solarized": "solarized",
+};
 
-function readStored(): string | null {
-  try {
-    return localStorage.getItem(STORAGE_KEY);
-  } catch {
-    // Storage blocked: no saved theme, fall back to the system scheme.
-    return null;
-  }
-}
-
-function initialTheme(): ThemeId {
-  const stored = readStored();
-  if (isThemeId(stored)) return stored;
-  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-}
-
-export const theme = writable<ThemeId>(initialTheme());
-
-// gmd-theme is only read: the themes store migrates it (absent → leef-auto), so writing it here would pick the theme on first launch.
-theme.subscribe((value) => {
-  document.documentElement.dataset.theme = dataThemeOf(value);
-});
+/** Facade of the themes store, its only source: the system scheme and the stored choice are the store's. */
+export const theme: Readable<ThemeId> = derived([activeTheme, scheme], ([active, current]) =>
+  Object.hasOwn(BUILTIN_IDS, active.id) ? BUILTIN_IDS[active.id] : current,
+);
 
 export function setTheme(id: ThemeId): void {
-  theme.set(id);
+  const selected = selectTheme(`leef-${id}`);
+  if (selected.ok) effacerErreur("theme");
+  else signalerErreur("theme", "Thème non enregistré", selected.error.message);
 }

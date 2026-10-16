@@ -497,3 +497,97 @@ describe("T033 démarrage, migration, autre onglet", () => {
     expect(store.selectTheme("nope")).toMatchObject({ ok: false, error: { code: "not-found" } });
   });
 });
+
+describe("T042 theme.ts façade du store (D10)", () => {
+  type Facade = typeof import("../theme");
+
+  /** Système clair/sombre basculable : renvoie la bascule (écouteurs `change` appelés). */
+  function systemScheme(dark: boolean): (next: boolean) => void {
+    const listeners: (() => void)[] = [];
+    let state = dark;
+    vi.stubGlobal("matchMedia", () => ({ get matches() { return state; }, addEventListener: (_: string, l: () => void) => listeners.push(l), removeEventListener: () => undefined }));
+    window.matchMedia = globalThis.matchMedia;
+    return (next) => {
+      state = next;
+      for (const l of [...listeners]) l();
+    };
+  }
+
+  async function launch(): Promise<{ t: Facade; store: Store; draft: typeof import("../draft") }> {
+    vi.resetModules();
+    const t = await import("../theme");
+    return { t, store: await import("./store"), draft: await import("../draft") };
+  }
+
+  it("J1 lancement neuf sous système clair puis bascule sombre → theme suit (light → dark → light)", async () => {
+    const bascule = systemScheme(false);
+    const { t, store } = await launch();
+    expect([get(store.themeState).activeId, get(t.theme)]).toEqual(["leef-auto", "light"]);
+    bascule(true);
+    expect(get(t.theme)).toBe("dark");
+    bascule(false);
+    expect(get(t.theme)).toBe("light");
+  });
+
+  it("J1 migration gmd-theme=dark, 2e lancement sous système clair → theme dark", async () => {
+    systemScheme(false);
+    localStorage.setItem("gmd-theme", "dark");
+    expect(get((await launch()).t.theme)).toBe("dark");
+    const { t, store } = await launch();
+    expect([localStorage.getItem("gmd-theme"), get(store.themeState).activeId, get(t.theme)]).toEqual([null, "leef-dark", "dark"]);
+  });
+
+  it("J3 barre → Sombre : store = leef-dark ; bascule système → reste sombre ; rechargement → Sombre conservé", async () => {
+    const bascule = systemScheme(false);
+    const { t, store } = await launch();
+    t.setTheme("dark");
+    expect([get(store.themeState).activeId, get(t.theme)]).toEqual(["leef-dark", "dark"]);
+    bascule(true);
+    bascule(false);
+    expect(get(t.theme)).toBe("dark");
+    const again = await launch();
+    expect([get(again.store.themeState).activeId, get(again.t.theme)]).toEqual(["leef-dark", "dark"]);
+  });
+
+  it("dérivation : 4 intégrés, leef-auto selon le système, thème utilisateur selon sa base et le système", async () => {
+    const bascule = systemScheme(true);
+    const { t, store } = await launch();
+    for (const id of ["light", "dark", "dracula", "solarized"] as const) {
+      t.setTheme(id);
+      expect([get(store.themeState).activeId, get(t.theme)]).toEqual([`leef-${id}`, id]);
+    }
+    store.selectTheme("leef-auto");
+    expect(get(t.theme)).toBe("dark");
+    store.editTheme("leef-light", { name: "Mon clair" });
+    expect([get(store.activeTheme).base, get(t.theme)]).toEqual(["light", "light"]);
+    const auto = store.duplicateTheme("leef-auto");
+    store.selectTheme(auto);
+    expect(get(t.theme)).toBe("dark");
+    bascule(false);
+    expect(get(t.theme)).toBe("light");
+  });
+
+  it("setTheme, stockage plein → thème inchangé, erreur dans l'alerte (source theme) ; écriture réussie → effacée", async () => {
+    systemScheme(false);
+    const { t, store, draft } = await launch();
+    failStorage("setItem", "QuotaExceededError");
+    expect(() => t.setTheme("dracula")).not.toThrow();
+    expect([get(store.themeState).activeId, get(t.theme)]).toEqual(["leef-auto", "light"]);
+    expect(get(draft.storageErrors).theme).toMatch(/^Thème non enregistré \(.*QuotaExceededError.*\)\.$/);
+    vi.restoreAllMocks();
+    t.setTheme("dracula");
+    expect([get(t.theme), get(draft.storageErrors).theme]).toEqual(["dracula", null]);
+  });
+
+  it("entrées hostiles : setTheme types faux (null, nombre, objet, vide, __proto__, 1 Mo, emoji/RTL) → refus not-found dans l'alerte, thème inchangé, sans exception", async () => {
+    systemScheme(false);
+    const { t, store, draft } = await launch();
+    for (const bad of [null, 5, {}, "", "__proto__", "x".repeat(1024 * 1024), "😀 שלום é", "Sombre"]) {
+      expect(() => t.setTheme(bad as never)).not.toThrow();
+      expect([get(store.themeState).activeId, String(get(t.theme)).slice(0, 40)]).toEqual(["leef-auto", "light"]);
+      expect(get(draft.storageErrors)?.theme?.slice(0, 80)).toMatch(/^Thème non enregistré \(Thème introuvable : leef-/);
+    }
+    localStorage.setItem("leef-themes-v1", JSON.stringify({ version: 1, active: "__proto__", themes: [] }));
+    expect(get((await launch()).t.theme)).toBe("light");
+  });
+});

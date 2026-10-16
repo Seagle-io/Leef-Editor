@@ -6,8 +6,14 @@
  */
 import { readdirSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
+import { JSDOM } from "jsdom";
+import { strFromU8, unzipSync } from "fflate";
 import { generateTocMarkdown, parseMarkdown, renderDocument } from "./markdown";
 import { htmlToMarkdown } from "./htmlToMarkdown";
+import { markdownToDocx } from "./office/docxWriter";
+
+// The Word export reads its own XML back: borrow jsdom's parser only (as office.test.ts).
+globalThis.DOMParser = new JSDOM().window.DOMParser;
 
 async function roundTrip(source: string): Promise<string> {
   const { html } = renderDocument(source);
@@ -156,5 +162,41 @@ describe("heading ids vs the host page ids (T030 D7)", () => {
     expect(ids("###### app\n\n####### app\n")).toEqual(["section-app"]);
     expect(ids(Array.from({ length: 2000 }, (_, i) => `# ${i % 2 === 0 ? "App" : `palette-${i}`}`).join("\n\n")).filter((id) => hostIds.includes(id) || id.startsWith("palette-"))).toEqual([]);
     for (const wrong of [42, { a: 1 }, null, undefined]) expect(() => parseMarkdown(wrong as unknown as string)).toThrow();
+  });
+});
+
+describe("manual links to a renamed title (T037 J8)", () => {
+  const hrefs = (source: string): string[] => [...renderDocument(source).html.matchAll(/\bhref="([^"]*)"/g)].map((m) => m[1]);
+
+  it("points [aller](#app) at the title « App », not at the host element", () => {
+    expect(hrefs("[aller](#app)\n\n# Intro\n\n# App\n")).toEqual(["#section-app"]);
+    expect(hrefs("[a](#palette-input) [b](#fn1)\n\n# Palette input\n\n# fn1\n")).toEqual(["#section-palette-input", "#section-fn1"]);
+    expect(hrefs("# App\n\nVoir [ici](#app), dans une note[^1].\n\n[^1]: Et [là](#app).\n").filter((h) => !h.startsWith("#fn"))).toEqual(["#section-app", "#section-app"]);
+  });
+
+  it("follows the title's actual id when the prefixed one is taken", () => {
+    expect(hrefs("[aller](#app)\n\n# Section App\n\n# App\n")).toEqual(["#section-app-1"]);
+    expect(hrefs("[aller](#app)\n\n# App\n\n# App\n")).toEqual(["#section-app"]);
+  });
+
+  it("leaves ordinary anchors alone", () => {
+    expect(hrefs("[a](#fin) [b](#section-app) [c](#App) [d](https://x.fr/#app)\n\n# App\n\n# Fin\n")).toEqual(["#fin", "#section-app", "#App", "https://x.fr/#app"]);
+    expect(hrefs("[aller](#app)\n\n# Intro\n")).toEqual(["#app"]);
+  });
+
+  it("gives the Word export the same anchor as the preview", async () => {
+    const source = "[aller](#app)\n\n# App\n";
+    const xml = strFromU8(unzipSync(await markdownToDocx(source, { title: "t" }))["word/document.xml"]);
+    expect(xml).toMatch(/<w:hyperlink w:anchor="_Leef\d+"/);
+    expect(xml).toMatch(/<w:bookmarkStart w:id="\d+" w:name="_Leef\d+"\/>/);
+  });
+
+  it("hostile links: empty, encoded, unicode, very long", () => {
+    expect(hrefs("[a](#) [b](<#>) [c](#%61pp) [d](#%E0)\n\n# App\n")).toEqual(["#", "#", "#section-app", "#%E0"]);
+    expect(hrefs("[a](#ap-été) [b](#ap-%C3%A9t%C3%A9) [c](#ap-😀)\n\n# ap-été\n")).toEqual(["#section-ap-%C3%A9t%C3%A9", "#section-ap-%C3%A9t%C3%A9", "#ap-%F0%9F%98%80"]);
+    expect(hrefs("[a](#\ud800app) [b](#a\u0301pp) [c](#app)\n\n# \ud800app\n\n# مرحبا\n")).toEqual(["#%EF%BF%BDapp", "#a%CC%81pp", "#section-app"]);
+    const long = "ap ".repeat(30_000).trim().replace(/ /g, "-");
+    expect(hrefs(`[a](#${long})\n\n# ${"ap ".repeat(30_000)}\n`)).toEqual([`#section-${long}`]);
+    expect(hrefs(Array.from({ length: 2000 }, () => "[a](#app)").join(" ") + "\n\n# App\n").every((h) => h === "#section-app")).toBe(true);
   });
 });

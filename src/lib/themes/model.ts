@@ -81,7 +81,7 @@ export const BUILTIN_THEMES: readonly Theme[] = [
         "bg-window": "#eee8d5", "bg-sidebar": "#eee8d5", "bg-toolbar": "#eee8d5", "bg-content": "#fef7e5",
         "bg-elevated": "#fef7e5", "bg-control": "#e3dcc6", "bg-code": "#eee8d5", separator: "#d9d2c0",
         text: "#586e75", "text-secondary": "#657b83", "text-tertiary": "#93a1a1",
-        danger: "#dc322f", "danger-bg": "#f7e6df", "page-paper": "#fef7e5",
+        danger: "#b82825", "danger-bg": "#f7e6df", "page-paper": "#fef7e5",
       },
     },
   }),

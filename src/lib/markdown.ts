@@ -84,10 +84,36 @@ function clashesWithHost(id: string): boolean {
   return HOST_IDS.has(id) || /^fn(ref)?\d+$/.test(id) || HOST_ID_PREFIXES.some((prefix) => `${id}-`.startsWith(prefix));
 }
 
+function decodeFragment(fragment: string): string {
+  try {
+    return decodeURIComponent(fragment);
+  } catch {
+    return fragment;
+  }
+}
+
+/**
+ * A manual `[aller](#app)` means the title « App », now `section-app`: without
+ * this it would jump to the host element `#app` (T037 J8).
+ */
+function retargetRenamedAnchors(tokens: Token[], renamed: Map<string, string>): void {
+  if (renamed.size === 0) return;
+  for (const token of tokens) {
+    for (const child of token.children ?? []) {
+      if (child.type !== "link_open") continue;
+      const href = child.attrGet("href") ?? "";
+      const id = href.startsWith("#") ? renamed.get(decodeFragment(href.slice(1))) : undefined;
+      if (id !== undefined) child.attrSet("href", md.normalizeLink(`#${id}`));
+    }
+  }
+}
+
 function collectHeadings(tokens: Token[]): TocItem[] {
   const items: TocItem[] = [];
   const used = new Set<string>();
   const counts = new Map<string, number>();
+  // Slug a title would have had → id it got instead, for the first such title.
+  const renamed = new Map<string, string>();
 
   for (let i = 0; i < tokens.length; i++) {
     const token = tokens[i];
@@ -103,11 +129,13 @@ function collectHeadings(tokens: Token[]): TocItem[] {
     while (used.has(id)) id = `${base}-${++count}`;
     counts.set(base, count);
     used.add(id);
+    if (base !== slug && !renamed.has(slug)) renamed.set(slug, id);
 
     token.attrSet("id", id);
     items.push({ level, text, id });
   }
 
+  retargetRenamedAnchors(tokens, renamed);
   return items;
 }
 

@@ -3,7 +3,7 @@
  * writing surface, not a read-only render — with a padlock to freeze it.
  */
 import { writable } from "svelte/store";
-import { reportStorageError } from "./draft";
+import { effacerErreur, signalerErreur } from "./draft";
 
 const STORAGE_KEY = "gmd-preview-editable";
 
@@ -22,8 +22,10 @@ previewEditable.subscribe((value) => {
   try {
     localStorage.setItem(STORAGE_KEY, String(value));
   } catch (e) {
-    reportStorageError("Enregistrement du verrou de l'aperçu impossible : réglage gardé pour cette session seulement", e);
+    signalerErreur("apercu", "Enregistrement du verrou de l'aperçu impossible : réglage gardé pour cette session seulement", e);
+    return;
   }
+  effacerErreur("apercu");
 });
 
 export function togglePreviewEditable(): void {

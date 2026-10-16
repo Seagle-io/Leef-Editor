@@ -76,7 +76,7 @@ describe("font.ts", () => {
     expect(bouton?.textContent?.trim()).toBe("");
     bouton?.click();
     await Promise.resolve();
-    expect([...document.querySelectorAll(".choice-item")].map((b) => b.textContent?.trim())).toEqual(["Système", "Georgia", "JetBrains Mono"]);
+    expect([...document.querySelectorAll(".choice-item")].map((b) => b.textContent?.trim())).toEqual(["Système", "Georgia", "Monospace"]);
     expect(document.querySelectorAll(".choice-item.selected")).toHaveLength(0);
     vue.$destroy();
   });
@@ -92,6 +92,18 @@ describe("font.ts", () => {
     expect(get(f.font)).toBe("inter");
     expect(get(s.activeTheme).contentFont).toBe("ui");
     expect(contentVar()).toBe("var(--leef-font-ui)");
+  });
+
+  it("J7 option « Monospace » (D8) : id jetbrains-mono conservé, pile = var(--leef-font-mono), préréglage mono", async () => {
+    const { f, s } = await reload();
+    const mono = f.fonts.find((o) => o.id === "jetbrains-mono");
+    expect(mono?.label).toBe("Monospace");
+    expect(mono?.stack).toBe("var(--leef-font-mono)");
+    expect(f.fonts.some((o) => /JetBrains|Fira Code/.test(o.label + o.stack))).toBe(false);
+    f.setFont("jetbrains-mono");
+    expect(get(f.font)).toBe("jetbrains-mono");
+    expect(get(s.activeTheme).contentFont).toBe("mono");
+    expect(contentVar()).toBe("var(--leef-font-mono)");
   });
 
   it("entrées hostiles : pile libre limite / unicode → custom ou refus du thème, jamais d'exception de font", async () => {

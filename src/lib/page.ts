@@ -1,5 +1,5 @@
 import { writable } from "svelte/store";
-import { reportStorageError } from "./draft";
+import { effacerErreur, signalerErreur } from "./draft";
 
 export type PageFormatId = "a4" | "a5" | "letter" | "legal";
 
@@ -49,12 +49,19 @@ function read(key: string): string | null {
   }
 }
 
+/** Settings whose last write failed: the page error stays until each one is written again. */
+const unsaved = new Set<string>();
+
 function write(key: string, value: string): void {
   try {
     localStorage.setItem(key, value);
   } catch (e) {
-    reportStorageError("Enregistrement de la mise en page impossible : réglage gardé pour cette session seulement", e);
+    unsaved.add(key);
+    signalerErreur("page", "Enregistrement de la mise en page impossible : réglage gardé pour cette session seulement", e);
+    return;
   }
+  unsaved.delete(key);
+  if (unsaved.size === 0) effacerErreur("page");
 }
 
 function isFormatId(value: string | null): value is PageFormatId {
