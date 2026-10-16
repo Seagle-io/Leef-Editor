@@ -201,7 +201,8 @@ export const scheme: Readable<Scheme> = derived(state, (s) => s.scheme);
 export function selectTheme(id: string): Result<void, ThemeError> {
   const synced = sync();
   if (!synced.ok) return synced;
-  find(id);
+  // Supprimé dans un autre onglet (cache relu par sync) ou id inconnu : refus, pas d'exception.
+  if (!current.themes.some((t) => t.id === id)) return fail("not-found", `Thème introuvable : ${id}`);
   return commit({ ...current, activeId: id });
 }
 
@@ -303,25 +304,30 @@ function migrateLegacy(): void {
     return;
   }
   const id = legacy !== null && LEGACY_THEMES.includes(legacy) ? `leef-${legacy}` : AUTO_ID;
-  const written = commit({ ...current, activeId: id });
-  // Cache non écrit : gmd-* gardées, la migration se rejoue au prochain démarrage.
+  let next: ThemeState = { ...current, activeId: id };
+  if (font !== null && Object.hasOwn(LEGACY_FONTS, font)) {
+    // Même copie « personnalisé » qu'editTheme sur un intégré, mais dans la même écriture que le thème.
+    const source = find(id);
+    const parsed = parseTheme({ ...source, contentFont: LEGACY_FONTS[font] });
+    if (!parsed.ok) {
+      setError(parsed.error.message);
+      return;
+    }
+    const copy: Theme = { ...parsed.value, id: newId(), builtin: false, name: uniqueName(`${source.name} personnalisé`) };
+    next = { ...next, themes: [...next.themes, copy], activeId: copy.id };
+  }
+  // Une seule écriture : non écrite → gmd-* gardées, la migration se rejoue entière au prochain démarrage.
+  const written = commit(next);
   if (!written.ok) {
     setError(written.error.message);
     return;
   }
-  if (font !== null && Object.hasOwn(LEGACY_FONTS, font)) {
-    try {
-      editTheme(id, { contentFont: LEGACY_FONTS[font] });
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-      return;
-    }
-  }
   try {
     localStorage.removeItem("gmd-theme");
     localStorage.removeItem("gmd-font");
-  } catch {
-    // gmd-* restées : sans effet, le cache existe et la migration ne se rejoue pas.
+  } catch (e) {
+    // Sans effet sur le thème : le cache existe, la migration ne se rejoue pas.
+    setError(`Anciens réglages de thème non effacés (${errorText(e)}) : thème migré.`);
   }
 }
 

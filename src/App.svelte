@@ -7,7 +7,9 @@
   import Explorer from "./lib/Explorer.svelte";
   import { openFile, saveFile, exportHtml, exportOffice, type ExportContext } from "./lib/fileio";
   import { renderDocument, generateTocMarkdown } from "./lib/markdown";
-  import { loadSession, saveSession } from "./lib/draft";
+  import { loadSession, saveSession, storageError } from "./lib/draft";
+  import { themeState } from "./lib/themes/store";
+  import { recentStorageError } from "./lib/commands";
   import { theme } from "./lib/theme";
   import { panes, showPane } from "./lib/panes";
   import { previewEditable } from "./lib/previewEdit";
@@ -89,6 +91,8 @@ console.log("hello gmd");
   let sessionSaveHandle: ReturnType<typeof setTimeout> | undefined;
   let activeHeadingLevel: number | null = null;
   let focusMode = false;
+  /** Storage alert closed by the user: hidden until its text changes. */
+  let dismissedStorage: string | null = null;
 
   function toggleFocusMode() {
     focusMode = !focusMode;
@@ -99,6 +103,9 @@ console.log("hello gmd");
   $: documentTitle = $activeDoc ? docTitle($activeDoc) : "Sans titre";
   $: wordCount = content.trim() === "" ? 0 : content.trim().split(/\s+/).length;
   $: readingMinutes = Math.max(1, Math.round(wordCount / 200));
+  $: storageMessages = [$themeState.error, $storageError, $recentStorageError].filter((m): m is string => m !== null);
+  $: storageAlert = storageMessages.join("\n");
+  $: if (storageAlert === "") dismissedStorage = null;
 
   function persistSession() {
     clearTimeout(sessionSaveHandle);
@@ -356,6 +363,16 @@ console.log("hello gmd");
   {#if error}
     <p class="error" role="alert">{error}</p>
   {/if}
+  {#if storageAlert !== "" && storageAlert !== dismissedStorage}
+    <div class="error storage-alert" role="alert">
+      <div>
+        {#each storageMessages as message}
+          <p>{message}</p>
+        {/each}
+      </div>
+      <button class="storage-alert-close" on:click={() => (dismissedStorage = storageAlert)} aria-label="Fermer l'alerte">✕</button>
+    </div>
+  {/if}
   <div class="panes">
     {#if $panes.explorer && !focusMode}
       <Explorer
@@ -462,6 +479,24 @@ console.log("hello gmd");
     background: var(--leef-danger-bg);
     color: var(--leef-danger);
     font-size: 0.85rem;
+  }
+  .storage-alert {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+  }
+  .storage-alert div {
+    flex: 1;
+  }
+  .storage-alert p {
+    margin: 0;
+  }
+  .storage-alert-close {
+    border: none;
+    background: none;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
   }
   .focus-exit {
     position: fixed;

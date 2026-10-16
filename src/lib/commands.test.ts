@@ -184,6 +184,29 @@ describe("runCommand", () => {
     expect(get(corrupt.recentCommands)).toEqual([]);
     expect(get(corrupt.recentStorageError)).toMatch(/^Commandes récentes illisibles : /);
   });
+
+  it("a successful write clears the write error, not a read error (T029 G4)", async () => {
+    let failures = 1;
+    const setItem = vi.spyOn(localStorage, "setItem").mockImplementation((k: string, v: string) => {
+      if (failures-- > 0) throw new DOMException("quota", "QuotaExceededError");
+      store.set(k, v);
+    });
+    try {
+      unregister = m.registerCommands([cmd("a"), cmd("b")]);
+      await m.runCommand("a");
+      expect(get(m.recentStorageError)).toBe("Commandes récentes non enregistrées : quota");
+      await m.runCommand("b");
+      expect(store.get("leef-recent-commands")).toBe('["b","a"]');
+      expect(get(m.recentStorageError)).toBeNull();
+    } finally {
+      setItem.mockRestore();
+    }
+    store.set("leef-recent-commands", "{pas du json");
+    vi.resetModules();
+    const corrupt = await import("./commands");
+    expect(store.get("leef-recent-commands")).toBe("[]");
+    expect(get(corrupt.recentStorageError)).toMatch(/^Commandes récentes illisibles : /);
+  });
 });
 
 describe("matchShortcut", () => {
@@ -231,6 +254,25 @@ describe("matchShortcut", () => {
     expect(m.matchShortcut(key({ key: "z", code: "KeyW", ctrlKey: true }), "Mod-z")).toBe(true);
     expect(m.matchShortcut(key({ key: "ы", code: "", ctrlKey: true }), "Mod-s")).toBe(false);
     expect(m.matchShortcut(key({ key: "ы", code: "KeyS", ctrlKey: true }), "Mod-ы")).toBe(true);
+  });
+
+  it("AltGr (Ctrl+Alt on Windows) typing a symbol is no shortcut: Hungarian or Czech AltGr+F is « [ » (T029 G1)", () => {
+    expect(m.matchShortcut(key({ key: "[", code: "KeyF", ctrlKey: true, altKey: true }), "Mod-Alt-f")).toBe(false);
+    expect(m.matchShortcut(key({ key: "€", code: "KeyE", ctrlKey: true, altKey: true }), "Mod-Alt-e")).toBe(false);
+    expect(m.matchShortcut(key({ key: "😀", code: "KeyF", ctrlKey: true, altKey: true }), "Mod-Alt-f")).toBe(false);
+    expect(m.matchShortcut(key({ key: " ", code: "KeyF", ctrlKey: true, altKey: true }), "Mod-Alt-f")).toBe(false);
+    expect(m.matchShortcut(key({ key: "а", code: "KeyF", ctrlKey: true, altKey: true }), "Mod-Alt-f")).toBe(true);
+    expect(m.matchShortcut(key({ key: "Dead", code: "KeyF", ctrlKey: true, altKey: true }), "Mod-Alt-f")).toBe(true);
+    expect(m.matchShortcut(key({ key: "ś", code: "KeyS", ctrlKey: true, altKey: true }), "Mod-Alt-s")).toBe(true);
+    expect(m.matchShortcut(key({ key: "ы", code: "KeyS", ctrlKey: true }), "Mod-s")).toBe(true);
+    const search = vi.fn();
+    unregister = m.registerCommands([cmd("folder.search", { shortcut: { keys: "Mod-Alt-f", scope: "global" }, run: search })]);
+    const altGr = key({ key: "[", code: "KeyF", ctrlKey: true, altKey: true });
+    expect(m.handleGlobalKeydown(altGr)).toBe(false);
+    expect(altGr.preventDefault).not.toHaveBeenCalled();
+    expect(search).not.toHaveBeenCalled();
+    platform("MacIntel");
+    expect(m.matchShortcut(key({ key: "ƒ", code: "KeyF", metaKey: true, altKey: true }), "Mod-Alt-f")).toBe(true);
   });
 
   it("AZERTY Ctrl+Z does not run the Mod-w global command (T013 D2)", () => {

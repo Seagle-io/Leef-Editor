@@ -3,6 +3,7 @@
  * a chosen layout survives a restart.
  */
 import { writable } from "svelte/store";
+import { reportStorageError } from "./draft";
 
 export type PaneId = "explorer" | "editor" | "preview" | "outline";
 
@@ -16,12 +17,23 @@ const defaults: Record<PaneId, boolean> = {
 };
 
 function load(): Record<PaneId, boolean> {
+  let stored: unknown;
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? { ...defaults, ...(JSON.parse(raw) as Partial<Record<PaneId, boolean>>) } : { ...defaults };
-  } catch {
+    stored = raw ? JSON.parse(raw) : null;
+  } catch (e) {
+    reportStorageError("Disposition des volets illisible : disposition par défaut", e);
     return { ...defaults };
   }
+  const saved = typeof stored === "object" && stored !== null ? (stored as Record<string, unknown>) : {};
+  const value = { ...defaults };
+  for (const id of Object.keys(defaults) as PaneId[]) {
+    const shown = Object.hasOwn(saved, id) ? saved[id] : undefined;
+    if (typeof shown === "boolean") value[id] = shown;
+  }
+  // Same rule as togglePane: never both the editor and the preview hidden.
+  if (!value.editor && !value.preview) value.editor = true;
+  return value;
 }
 
 export const panes = writable<Record<PaneId, boolean>>(load());
@@ -29,8 +41,8 @@ export const panes = writable<Record<PaneId, boolean>>(load());
 panes.subscribe((value) => {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(value));
-  } catch {
-    // Storage full or blocked: the layout stays in memory for this session.
+  } catch (e) {
+    reportStorageError("Enregistrement de la disposition des volets impossible : disposition gardée pour cette session seulement", e);
   }
 });
 

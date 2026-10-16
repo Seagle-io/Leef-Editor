@@ -4,8 +4,9 @@
  * the constructs GMD renders specially (code fences, Mermaid, admonitions,
  * tables, footnotes, page breaks).
  */
+import { readdirSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { parseMarkdown, renderDocument } from "./markdown";
+import { generateTocMarkdown, parseMarkdown, renderDocument } from "./markdown";
 import { htmlToMarkdown } from "./htmlToMarkdown";
 
 async function roundTrip(source: string): Promise<string> {
@@ -99,5 +100,61 @@ describe("heading ids", () => {
     expect(ids("# 😀 مرحبا é\n\n# 😀 مرحبا é\n")).toEqual(["-مرحبا-é", "-مرحبا-é-1"]);
     const many = ids(Array.from({ length: 2000 }, (_, i) => `# ${i % 2 === 0 ? "A" : `A-${i}`}`).join("\n\n"));
     expect(new Set(many).size).toBe(2000);
+  });
+});
+
+describe("heading ids vs the host page ids (T030 D7)", () => {
+  const ids = (source: string): string[] => parseMarkdown(source).toc.map((item) => item.id);
+  const source = (chemin: string): string => readFileSync(new URL(chemin, import.meta.url), "utf8");
+  const svelteFiles = (readdirSync(new URL("../", import.meta.url), { recursive: true }) as string[]).filter((f) => f.endsWith(".svelte"));
+  const hostSources = [source("../../index.html"), ...svelteFiles.map((f) => source(`../${f}`))].join("\n");
+  // Ids built at runtime, not as a literal `id="…"` attribute (Dialog.svelte `{id}-…`, page.ts, footnotes).
+  const runtimeIds = ["leef-dialog-title", "leef-dialog-body", "leef-dialog-error", "gmd-page-size", "palette-list", "fn1", "fnref1"];
+  const literalIds = [...hostSources.matchAll(/\bid="([^"{]+)"/g)].map((m) => m[1]);
+  const templatePrefixes = [...hostSources.matchAll(/\bid="([^"{]+)\{/g)].map((m) => m[1]);
+  const hostIds = [...literalIds, ...runtimeIds];
+
+  it("finds the host ids it guards against", () => {
+    expect(literalIds).toEqual(expect.arrayContaining(["app", "backlinks-unlinked", "ap-base", "ap-size", "themes-title", "theme-name"]));
+    expect(templatePrefixes).toEqual(expect.arrayContaining(["palette-g-", "palette-opt-"]));
+  });
+
+  it("never gives a title the id of a host element", () => {
+    const titles = ["App", "app", "Palette input", "ap-x", ...hostIds, ...templatePrefixes.map((p) => `${p}0`)];
+    const emitted = ids(titles.map((t) => `# ${t}`).join("\n\n"));
+    expect(emitted).toHaveLength(titles.length);
+    expect(new Set(emitted).size).toBe(titles.length);
+    expect(emitted.filter((id) => hostIds.includes(id))).toEqual([]);
+    expect(emitted.filter((id) => ["ap-", "palette-", ...templatePrefixes].some((p) => id.startsWith(p)))).toEqual([]);
+  });
+
+  it("keeps a reserved title id distinct and stable", () => {
+    expect(ids("# App\n\n# app\n\n# Palette input\n\n# ap-x\n")).toEqual(["section-app", "section-app-1", "section-palette-input", "section-ap-x"]);
+    expect(ids("# Section App\n\n# App\n")).toEqual(["section-app", "section-app-1"]);
+    expect(ids("# Palette\n\n# Palette\n")).toEqual(["section-palette", "section-palette-1"]);
+    expect(generateTocMarkdown(parseMarkdown("# App\n").toc)).toBe("- [App](#section-app)\n");
+  });
+
+  it("does not collide with footnote ids", () => {
+    const { html } = renderDocument("# fn1\n\n# fnref1\n\nUne note[^1].\n\n[^1]: La source.\n");
+    const all = [...html.matchAll(/\bid="([^"]*)"/g)].map((m) => m[1]);
+    expect(new Set(all).size).toBe(all.length);
+  });
+
+  it("keeps the ids of ordinary titles, so existing #anchors still resolve", () => {
+    const { html, toc } = renderDocument("# Titre\n\n## Mon application\n\n[voir](#titre) [app](#mon-application)\n");
+    expect(toc.map((item) => item.id)).toEqual(["titre", "mon-application"]);
+    expect(html).toContain('id="titre"');
+    expect(html).toContain('href="#titre"');
+    expect(html).toContain('id="mon-application"');
+  });
+
+  it("hostile titles stay clear of host ids", () => {
+    expect(ids("#\n\n# ‏\n\n# 😀\n")).toEqual(["section", "section-1", "section-2"]);
+    expect(ids("# APP\n\n# a\u0301pp\n\n# \ud800app\n")).toEqual(["section-app", "section-app-1", "section-app-2"]);
+    expect(ids(`# ${"app ".repeat(25_000)}`)[0]).toHaveLength(100_000 - 1);
+    expect(ids("###### app\n\n####### app\n")).toEqual(["section-app"]);
+    expect(ids(Array.from({ length: 2000 }, (_, i) => `# ${i % 2 === 0 ? "App" : `palette-${i}`}`).join("\n\n")).filter((id) => hostIds.includes(id) || id.startsWith("palette-"))).toEqual([]);
+    for (const wrong of [42, { a: 1 }, null, undefined]) expect(() => parseMarkdown(wrong as unknown as string)).toThrow();
   });
 });

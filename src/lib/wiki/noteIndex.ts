@@ -116,9 +116,16 @@ export class NoteIndex {
     for (const source of this.incoming.get(path) ?? []) {
       const e = this.entries.get(source);
       if (!e || source === path) continue;
+      // Une ligne lue une fois, même si elle porte 20 000 refs : relue par ref, c'était quadratique.
+      const contexts = new Map<number, string>();
       for (const ref of e.refs) {
         if (this.resolve(ref.target, source) === path) {
-          out.push({ source, rel: e.rel, ref, context: lineAround(e.content, ref) });
+          let context = contexts.get(ref.line);
+          if (context === undefined) {
+            context = lineAround(e.content, ref);
+            contexts.set(ref.line, context);
+          }
+          out.push({ source, rel: e.rel, ref, context });
         }
       }
     }

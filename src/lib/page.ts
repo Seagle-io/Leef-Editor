@@ -1,4 +1,5 @@
 import { writable } from "svelte/store";
+import { reportStorageError } from "./draft";
 
 export type PageFormatId = "a4" | "a5" | "letter" | "legal";
 
@@ -51,8 +52,8 @@ function read(key: string): string | null {
 function write(key: string, value: string): void {
   try {
     localStorage.setItem(key, value);
-  } catch {
-    // Storage full or blocked: page settings stay in memory for this session.
+  } catch (e) {
+    reportStorageError("Enregistrement de la mise en page impossible : réglage gardé pour cette session seulement", e);
   }
 }
 

@@ -3,6 +3,7 @@
  * writing surface, not a read-only render — with a padlock to freeze it.
  */
 import { writable } from "svelte/store";
+import { reportStorageError } from "./draft";
 
 const STORAGE_KEY = "gmd-preview-editable";
 
@@ -20,8 +21,8 @@ export const previewEditable = writable<boolean>(load());
 previewEditable.subscribe((value) => {
   try {
     localStorage.setItem(STORAGE_KEY, String(value));
-  } catch {
-    // Storage full or blocked: the setting stays in memory for this session.
+  } catch (e) {
+    reportStorageError("Enregistrement du verrou de l'aperçu impossible : réglage gardé pour cette session seulement", e);
   }
 });
 

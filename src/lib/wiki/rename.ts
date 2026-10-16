@@ -1,5 +1,5 @@
 import { NoteIndex, type NoteEntry } from "./noteIndex";
-import { aliasBar, NOTE_FILE, noteKey, scanWikiRefs, type WikiRef } from "./parse";
+import { aliasBar, NOTE_FILE, noteKey, parseWikiInner, scanWikiRefs, type WikiRef } from "./parse";
 
 export interface RenameResult {
   renamed: boolean;
@@ -88,9 +88,20 @@ export function renameRewrites(
       if (want === null) return r.raw;
       const path = want === to ? full : (index.get(want)?.rel ?? "").replace(NOTE_FILE, "");
       const short = want === to && !noteKey(r.target).includes("/") && !ambiguous ? name : path;
-      // D7 : [[/chemin]] part de la racine, dernier recours quand le nom ou le chemin se ferait capturer.
-      const target = [short, path].find((t) => after.resolve(t, home) === want) ?? `/${path}`;
-      return target + (r.heading === null ? "" : `#${r.heading}`) + (r.alias === null ? "" : `${aliasBar(r.raw)}${r.alias}`);
+      const rest = (r.heading === null ? "" : `#${r.heading}`) + (r.alias === null ? "" : `${aliasBar(r.raw)}${r.alias}`);
+      // D7 : [[/chemin]] part de la racine, quand le nom ou le chemin se ferait capturer ; le nom seul, si le chemin ne s'écrit pas.
+      // Chaque candidat est relu comme le lira scanWikiRefs : [[C#]] vise « C », un « ] » ou plus de 512 unités ne se lisent pas.
+      const inner = [short, path, `/${path}`, name]
+        .map((t) => t + rest)
+        .find((s) => {
+          const t = parseWikiInner(s);
+          return t !== null && t.heading === r.heading && t.alias === r.alias && after.resolve(t.target, home) === want;
+        });
+      if (inner === undefined) {
+        const rel = want === to ? toRel : (index.get(want)?.rel ?? want);
+        throw new Error(`Renommage refusé : un lien vers « ${rel} » ne s'écrirait plus en [[…]] (#, [, ] ou plus de 512 caractères)`);
+      }
+      return inner;
     };
     const { count, content } = rewriteRefs(e.content, () => true, newInner);
     if (count > 0) files.push({ path: e.path, count, content });

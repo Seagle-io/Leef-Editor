@@ -144,3 +144,68 @@ describe("entrées hostiles", () => {
     }
   });
 });
+
+describe("T033 session, écritures, volets", () => {
+  it("H1 session corrompue (content nombre / objet / null, path nombre, dirty non booléen, doc non objet) → session ignorée, brouillon, erreur signalée", async () => {
+    for (const doc of [{ content: 5, path: null, dirty: false }, { content: {}, path: null, dirty: false }, { content: null, path: null, dirty: false }, { content: "ok", path: 7, dirty: false }, { content: "ok", path: null, dirty: "x" }, "texte", 5]) {
+      localStorage.clear();
+      localStorage.setItem("gmd-session", JSON.stringify({ docs: [{ content: "bon", path: null, dirty: false }, doc], activeIndex: 0 }));
+      localStorage.setItem("gmd-draft", "brouillon");
+      const m = await draft();
+      expect(m.loadSession()?.docs.map((d) => d.content)).toEqual(["brouillon"]);
+      expect(get(m.storageError)).toMatch(/session/);
+    }
+  });
+
+  it("H1 session illisible (JSON tronqué, null, nombre, docs non tableau) → brouillon, erreur signalée ; absente → aucune erreur", async () => {
+    for (const bad of ["{", "null", "5", '"x"', '{"docs":5}', '{"docs":{"0":{"content":"a"}}}']) {
+      localStorage.clear();
+      localStorage.setItem("gmd-session", bad);
+      const m = await draft();
+      expect(m.loadSession()).toBeNull();
+      expect(get(m.storageError)).toMatch(/session/);
+    }
+    localStorage.clear();
+    const m = await draft();
+    expect(m.loadSession()).toBeNull();
+    expect(get(m.storageError)).toBeNull();
+  });
+
+  it("H1 activeIndex hors bornes, négatif, décimal, texte, absent → borné ; valide → gardé", async () => {
+    const docs = [{ content: "a", path: "a.md", dirty: true }, { content: "😀 שלום", path: null, dirty: false }];
+    for (const [index, expected] of [[99, 0], [-3, 0], [1.5, 0], ["1", 0], [null, 0], [undefined, 0], [1, 1]] as const) {
+      localStorage.clear();
+      localStorage.setItem("gmd-session", JSON.stringify({ docs, activeIndex: index }));
+      const r = (await draft()).loadSession();
+      expect(r?.activeIndex).toBe(expected);
+      expect(r?.docs.map((d) => [d.path, d.content, d.dirty])).toEqual([["a.md", "a", true], [null, "😀 שלום", false]]);
+    }
+  });
+
+  it("H2 stockage plein → chaque écriture (session, mise en page, volets, aperçu) signale une erreur lisible", async () => {
+    failStorage("setItem");
+    const d = await draft();
+    d.saveSession([createDoc("VERSION-2")], 0);
+    expect(get(d.storageError)).toMatch(/onglets.*QuotaExceededError/);
+    for (const load of [page, panes, previewEdit]) {
+      await load();
+      expect(get((await import("./draft")).storageError)).toMatch(/QuotaExceededError/);
+    }
+  });
+
+  it("H3 theme.ts n'écrit jamais gmd-theme (import, setTheme)", async () => {
+    const m = await theme();
+    m.setTheme("dracula");
+    expect(localStorage.getItem("gmd-theme")).toBeNull();
+    expect(document.documentElement.dataset.theme).toBe("dark");
+  });
+
+  it("H9 volets : éditeur et aperçu tous deux false → éditeur montré ; types faux → défauts, aucune clé étrangère", async () => {
+    localStorage.setItem("gmd-panes", '{"editor":false,"preview":false}');
+    expect(get((await panes()).panes)).toEqual({ explorer: false, editor: true, preview: false, outline: true });
+    for (const bad of ['"abc"', '{"editor":"x","preview":0,"outline":null,"explorer":{}}', '{"__proto__":{"editor":false},"x":1}', "[false,false]"]) {
+      localStorage.setItem("gmd-panes", bad);
+      expect(get((await panes()).panes)).toEqual({ explorer: false, editor: true, preview: true, outline: true });
+    }
+  });
+});

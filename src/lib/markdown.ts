@@ -74,6 +74,16 @@ export function slugify(text: string): string {
   );
 }
 
+// Ids the page itself uses (index.html, components, footnotes): a title must
+// never take one, or `getElementById` jumps to the host element (T030 D7).
+const HOST_IDS = new Set(["app", "backlinks-unlinked", "themes-title", "theme-name", "theme-free", "theme-esize", "l-efont", "gmd-page-size"]);
+const HOST_ID_PREFIXES = ["ap-", "palette-", "leef-dialog-"];
+
+/** True if `id`, or any `id-n` derived from it, can be a host id. */
+function clashesWithHost(id: string): boolean {
+  return HOST_IDS.has(id) || /^fn(ref)?\d+$/.test(id) || HOST_ID_PREFIXES.some((prefix) => `${id}-`.startsWith(prefix));
+}
+
 function collectHeadings(tokens: Token[]): TocItem[] {
   const items: TocItem[] = [];
   const used = new Set<string>();
@@ -86,7 +96,8 @@ function collectHeadings(tokens: Token[]): TocItem[] {
     const level = Number(token.tag.slice(1));
     const text = tokens[i + 1]?.content ?? "";
     // Suffixe -n jusqu'à un id libre : « A », « A », « A-1 » → a, a-1, a-1-1 (jamais deux fois le même id).
-    const base = slugify(text);
+    const slug = slugify(text);
+    const base = clashesWithHost(slug) ? `section-${slug}` : slug;
     let count = counts.get(base) ?? 0;
     let id = base;
     while (used.has(id)) id = `${base}-${++count}`;

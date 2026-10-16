@@ -56,10 +56,15 @@ function loadRecent(): string[] {
 const recent = writable<string[]>(loadRecent());
 export const recentCommands: Readable<string[]> = { subscribe: recent.subscribe };
 
+let writeFailed = false;
 recent.subscribe((value) => {
   try {
     localStorage.setItem(RECENT_KEY, JSON.stringify(value));
+    // A successful write clears a write failure only: an unreadable list stays reported (its content is lost).
+    if (writeFailed) storageError.set(null);
+    writeFailed = false;
   } catch (e) {
+    writeFailed = true;
     storageError.set(`Commandes récentes non enregistrées : ${reason(e)}`);
   }
 });
@@ -118,7 +123,8 @@ export function matchShortcut(e: KeyboardEvent, keys: string): boolean {
   if (e.shiftKey !== parts.includes("Shift") || e.altKey !== parts.includes("Alt")) return false;
   // A single letter also matches on e.code when e.key is no ASCII letter: Alt rewrites it on macOS ("ƒ" for Alt-f),
   // non-Latin layouts give "ы" for Ctrl+S. An ASCII letter is trusted: e.code is the physical QWERTY key (AZERTY Mod-z is code KeyW).
-  const fallback = e.altKey || !/^[a-z]$/i.test(e.key);
+  // With Alt, a printable non-letter is what Windows AltGr (Ctrl+Alt) types, "[" for Hungarian AltGr+F: never a shortcut.
+  const fallback = e.altKey ? !/^\P{L}$/u.test(e.key) : !/^[a-z]$/i.test(e.key);
   return e.key.toLowerCase() === key.toLowerCase() || (fallback && key.length === 1 && e.code === `Key${key.toUpperCase()}`);
 }
 

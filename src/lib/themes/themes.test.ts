@@ -26,7 +26,7 @@ beforeEach(() => {
 const dracula = BUILTIN_THEMES.find((t) => t.id === "leef-dracula") as Theme;
 const wrapTheme = (theme: unknown): string => JSON.stringify({ format: "leef-theme", version: 1, theme });
 const cachedNames = (): string[] => (JSON.parse(localStorage.getItem("leef-themes-v1") ?? "").themes as Theme[]).map((t) => t.name);
-const failStorage = (method: "getItem" | "setItem", name: string): void => {
+const failStorage = (method: "getItem" | "setItem" | "removeItem", name: string): void => {
   vi.spyOn(Storage.prototype, method).mockImplementation(() => {
     throw new DOMException(name, name);
   });
@@ -144,7 +144,7 @@ describe("store", () => {
 
   it("selectTheme inconnu → erreur explicite", async () => {
     const store = await freshStore();
-    expect(() => store.selectTheme("nope")).toThrow(/introuvable/);
+    expect(store.selectTheme("nope")).toMatchObject({ ok: false, error: { code: "not-found", message: expect.stringMatching(/introuvable/) } });
   });
 });
 
@@ -441,5 +441,59 @@ describe("applyTheme / themeVariables", () => {
     expect(root.style.getPropertyValue("--leef-bg-content")).toBe("");
     expect(root.style.getPropertyValue("--leef-accent")).toBe("");
     expect(root.dataset.accent).toBe("blue");
+  });
+});
+
+describe("T033 démarrage, migration, autre onglet", () => {
+  it.each([[false], [true]])("H3 1er démarrage sans clé, theme.ts importé d'abord (système sombre %s) → leef-auto, gmd-theme jamais écrite", async (dark) => {
+    vi.stubGlobal("matchMedia", () => ({ matches: dark, addEventListener: () => undefined, removeEventListener: () => undefined }));
+    window.matchMedia = globalThis.matchMedia;
+    vi.resetModules();
+    await import("../theme");
+    const store = await import("./store");
+    expect(get(store.themeState).activeId).toBe("leef-auto");
+    expect(localStorage.getItem("gmd-theme")).toBeNull();
+    expect(JSON.parse(localStorage.getItem("leef-themes-v1") ?? "").active).toBe("leef-auto");
+  });
+
+  it("H6 migration dark + georgia, une seule écriture du cache réussie puis plein → redémarrage : police serif, gmd-* supprimées", async () => {
+    localStorage.setItem("gmd-theme", "dark");
+    localStorage.setItem("gmd-font", "georgia");
+    const setItem = Storage.prototype.setItem;
+    let writes = 0;
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (this: Storage, k: string, v: string) {
+      if (k === "leef-themes-v1" && ++writes > 1) throw new DOMException("full", "QuotaExceededError");
+      return setItem.call(this, k, v);
+    });
+    await freshStore();
+    vi.restoreAllMocks();
+    const active = get((await freshStore()).activeTheme);
+    expect([active.contentFont, active.base, active.builtin]).toEqual(["serif", "dark", false]);
+    expect([localStorage.getItem("gmd-theme"), localStorage.getItem("gmd-font")]).toEqual([null, null]);
+  });
+
+  it("H6 migration : écriture du cache en échec → gmd-* gardées, rejouée au redémarrage suivant", async () => {
+    localStorage.setItem("gmd-theme", "dark");
+    localStorage.setItem("gmd-font", "georgia");
+    failStorage("setItem", "QuotaExceededError");
+    await freshStore();
+    vi.restoreAllMocks();
+    expect(get((await freshStore()).activeTheme).contentFont).toBe("serif");
+  });
+
+  it("H4 removeItem lève pendant la migration → themeState.error posé, thème migré", async () => {
+    localStorage.setItem("gmd-theme", "dark");
+    failStorage("removeItem", "SecurityError");
+    const state = get((await freshStore()).themeState);
+    expect(state).toMatchObject({ activeId: "leef-dark", error: expect.stringMatching(/SecurityError/) });
+  });
+
+  it("H8 thème supprimé dans un autre onglet, événement storage pas encore traité → selectTheme : Result not-found, sans exception", async () => {
+    const store = await freshStore();
+    const imported = store.importTheme(wrapTheme({ name: "X" }));
+    const id = imported.ok ? imported.value : "";
+    localStorage.setItem("leef-themes-v1", JSON.stringify({ version: 1, active: "leef-auto", themes: [] }));
+    expect(store.selectTheme(id)).toMatchObject({ ok: false, error: { code: "not-found" } });
+    expect(store.selectTheme("nope")).toMatchObject({ ok: false, error: { code: "not-found" } });
   });
 });

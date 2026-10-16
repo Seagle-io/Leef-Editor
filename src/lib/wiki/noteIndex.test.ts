@@ -79,6 +79,19 @@ describe("NoteIndex basics", () => {
     expect(ix.backlinks("/w/none.md")).toEqual([]);
   });
 
+  it("backlinks: 20 000 refs on one line read that line once, same contexts (T029 G5)", () => {
+    const line = Array(20_000).fill("[[t]]").join(" ");
+    const ix = NoteIndex.build([f("t.md"), f("s.md", `${line}\n  voir [[t|x]]  \n😀`)]);
+    const start = performance.now();
+    const bl = ix.backlinks("/w/t.md");
+    const ms = performance.now() - start;
+    expect(bl).toHaveLength(20_001);
+    expect(bl[0].context).toBe(line.slice(0, 160));
+    expect(bl[19_999].context).toBe(line.slice(0, 160));
+    expect(bl[20_000].context).toBe("voir [[t|x]]");
+    expect(ms).toBeLessThan(500);
+  });
+
   it("heading-only links resolve to the note itself and are not backlinks", () => {
     const ix = NoteIndex.build([f("a.md", "# H\n[[#H]]")]);
     expect(ix.backlinks("/w/a.md")).toEqual([]);

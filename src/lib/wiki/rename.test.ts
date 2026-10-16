@@ -156,6 +156,20 @@ describe("renameRewrites: no link changes target (T022 F1 F2, decision D7)", () 
     expect(r.contents["/w/t.md"]).toBe("| lien | n |\n|---|---|\n| [[Neuf\\|alias]] | 1 |\n| [[Neuf|x]] | [[Neuf#H\\|y]] |\n");
   });
 
+  it("refuses a name no link can reach, rather than break links: C#, d1/F#, a]]b, too long (T029 G3)", () => {
+    const refused = (files: NoteFile[], from: string, toRel: string) => {
+      const ix = NoteIndex.build(files);
+      expect(() => renameRewrites(ix, from, `/w/${toRel}`, toRel)).toThrow(/^Renommage refusé : /);
+      expect(() => planRename(ix, from, `/w/${toRel}`, toRel)).toThrow(/^Renommage refusé : /);
+    };
+    refused([f("X.md"), f("s.md", "[[X]] [[X|v]]")], "/w/X.md", "C#.md");
+    refused([f("d1/X.md"), f("d1/s.md", "[[X]]"), f("s.md", "[[d1/X]]")], "/w/d1/X.md", "d1/F#.md");
+    refused([f("X.md"), f("s.md", "[[X]]")], "/w/X.md", "a]]b.md");
+    refused([f("X.md"), f("s.md", "[[X#T|alias]]")], "/w/X.md", `${"y".repeat(510)}.md`);
+    expect(apply([f("X.md"), f("s.md", "plain")], "/w/X.md", "C#.md")).toEqual({ contents: {}, moved: [] });
+    expect(apply([f("d1/X.md"), f("s.md", "[[X]] [[d1/X|v]]")], "/w/d1/X.md", "c#/Y.md")).toEqual({ contents: { "/w/s.md": "[[Y]] [[Y|v]]" }, moved: [] });
+  });
+
   it("hostile names: emoji, RTL, combining marks, empty and huge content", () => {
     const files = [f("😀.md"), f("d/שלום.md"), f("d/X.md"), f("d/s.md", "[[😀]] [[שלום]] [[e\u0301]]"), f("é.md"), f("e.md", ""), f("big.md", "[[X]] ".repeat(20_000))];
     expect(apply(files, "/w/d/X.md", "d/😀.md").moved).toEqual([]);

@@ -96,6 +96,40 @@ describe("scanWikiRefs", () => {
     expect(raws("# 😀 שלום é\u0301\n    [[a]]\n".repeat(20_000))).toEqual([]);
   });
 
+  it("short setext, heading, rule or empty marker at the head of an item, CRLF: indented code after is code, as markdown-it (T029 G2)", () => {
+    for (const code of [
+      "T\n--\n    [[a]]\n",
+      "T\n-\n    [[a]]\n",
+      "T\n  - \n    [[a]]\n",
+      "> T\n> --\n>     [[a]]\n",
+      "- T\n  --\n      [[a]]\n",
+      "- # T\n      [[a]]\n",
+      "1. # T\n       [[a]]\n",
+      "- ***\n      [[a]]\n",
+      "-\n      [[a]]\n",
+      "-     [[a]]\n",
+      "> - # T\n>       [[a]]\n",
+      "#\r\n    [[a]]\r\n",
+      "T\r\n--\r\n    [[a]]\r\n",
+      "-\r\n      [[a]]\r\n",
+    ])
+      expect(raws(code), JSON.stringify(code)).toEqual([]);
+    for (const text of [
+      "T\n    --\n    [[a]]\n",
+      "- T\n--\n    [[a]]\n",
+      "> T\n--\n    [[a]]\n",
+      "> T\n===\n    [[a]]\n",
+      "> T\nx\n--\n    [[a]]\n",
+      "T\n*\n    [[a]]\n",
+      "- # T\n  [[a]]\n",
+      "- [[a]]\n",
+      "-  😀 [[a]]\r\n",
+    ])
+      expect(raws(text), JSON.stringify(text)).toEqual(["a"]);
+    expect(raws("- # [[h]]\n      [[a]]")).toEqual(["h"]);
+    expect(raws("- ‏שלום\n  --\n      [[a]]\n".repeat(10_000))).toEqual([]);
+  });
+
   it("indented code inside a blockquote is code, a quote paragraph continues (T022 F4)", () => {
     expect(raws(">     [[a]]\n")).toEqual([]);
     expect(raws(">>     [[a]]")).toEqual([]);

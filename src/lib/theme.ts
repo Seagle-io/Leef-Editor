@@ -50,13 +50,9 @@ function initialTheme(): ThemeId {
 
 export const theme = writable<ThemeId>(initialTheme());
 
+// gmd-theme is only read: the themes store migrates it (absent → leef-auto), so writing it here would pick the theme on first launch.
 theme.subscribe((value) => {
   document.documentElement.dataset.theme = dataThemeOf(value);
-  try {
-    localStorage.setItem(STORAGE_KEY, value);
-  } catch {
-    // Storage full or blocked: the theme stays in memory for this session.
-  }
 });
 
 export function setTheme(id: ThemeId): void {
