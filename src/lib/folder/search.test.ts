@@ -1,0 +1,187 @@
+import { describe, expect, it } from "vitest";
+import { compileQuery, searchNotes, type FileResult, type SearchableNote, type SearchOptions } from "./search";
+
+const plain: SearchOptions = { caseSensitive: false, wholeWord: false, regex: false };
+
+function re(q: string, o: Partial<SearchOptions> = {}): RegExp {
+  const r = compileQuery(q, { ...plain, ...o });
+  if (!r.ok) throw new Error(r.error.message);
+  return r.value;
+}
+
+function note(rel: string, content: string, headings: string[] = []): SearchableNote {
+  return { path: `/d/${rel}`, rel, content, headings };
+}
+
+async function run(notes: SearchableNote[], r: RegExp, signal = new AbortController().signal) {
+  const results: FileResult[] = [];
+  const summary = await searchNotes(notes, r, (b) => results.push(...b), signal);
+  return { results, summary };
+}
+
+describe("compileQuery", () => {
+  it("rejects queries under 2 characters (empty, 1 char)", () => {
+    for (const q of ["", "a"]) {
+      const r = compileQuery(q, plain);
+      expect(r.ok).toBe(false);
+      if (!r.ok) expect(r.error.code).toBe("too-short");
+    }
+  });
+
+  it("accepts exactly 2 characters (boundary)", () => {
+    expect(compileQuery("ab", plain).ok).toBe(true);
+  });
+
+  it("returns a readable error for an invalid regex", () => {
+    const r = compileQuery("(abc", { ...plain, regex: true });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.error.code).toBe("invalid-regex");
+      expect(r.error.message).toMatch(/^Expression régulière invalide/);
+    }
+  });
+
+  it("escapes plain text so regex syntax is literal", () => {
+    expect("a.b+c".match(re("a.b+c"))?.[0]).toBe("a.b+c");
+    expect("axb+c".match(re("a.b+c"))).toBeNull();
+  });
+
+  it("honours case", () => {
+    expect("Hello".match(re("hello"))).not.toBeNull();
+    expect("Hello".match(re("hello", { caseSensitive: true }))).toBeNull();
+  });
+
+  it("whole word works with accents, digits and underscore", () => {
+    const r = re("été", { wholeWord: true });
+    expect("un été chaud".match(r)).not.toBeNull();
+    expect("préétés".match(r)).toBeNull();
+    expect("été2".match(r)).toBeNull();
+    expect("_été".match(r)).toBeNull();
+  });
+
+  it("whole word wraps a whole regex alternation", () => {
+    const r = re("chat|chien", { regex: true, wholeWord: true });
+    expect("chatte".match(r)).toBeNull();
+    expect("un chien".match(r)?.[0]).toBe("chien");
+  });
+
+  it("handles unicode: emoji, RTL, accents", () => {
+    expect("a 😀 b".match(re("😀 b"))?.[0]).toBe("😀 b");
+    expect("שלום עולם".match(re("עולם"))?.[0]).toBe("עולם");
+    expect("ÉCOLE".match(re("école"))).not.toBeNull();
+  });
+
+  it("accepts control characters in the query without throwing", () => {
+    expect(compileQuery("a\u0001b", plain).ok).toBe(true);
+  });
+
+  it("copes with a very large query", () => {
+    const r = compileQuery("x".repeat(100_000), plain);
+    expect(r.ok).toBe(true);
+  });
+});
+
+describe("searchNotes", () => {
+  it("orders by rel, reports 1-based line and column", async () => {
+    const { results, summary } = await run([note("b.md", "x\nfoo bar"), note("a.md", "foo")], re("foo"));
+    expect(results.map((r) => r.rel)).toEqual(["a.md", "b.md"]);
+    expect(results[1].hits[0]).toMatchObject({ line: 2, column: 1, length: 3 });
+    expect(summary).toMatchObject({ files: 2, hits: 2, truncated: false, aborted: false });
+  });
+
+  it("flags titleMatch on file name or ATX heading, without content hits", async () => {
+    const { results } = await run([note("dir/foo.md", "rien"), note("x.md", "rien", ["Le foo"]), note("y.md", "rien", ["bar"])], re("foo"));
+    expect(results.map((r) => [r.rel, r.titleMatch, r.hits.length])).toEqual([["dir/foo.md", true, 0], ["x.md", true, 0]]);
+  });
+
+  it("ignores empty matches", async () => {
+    const { results } = await run([note("a.md", "abc")], /x*/gu);
+    expect(results).toEqual([]);
+  });
+
+  it("empty file and CRLF lines", async () => {
+    const { results } = await run([note("e.md", ""), note("c.md", "ab foo\r\nfoo\r\n")], re("foo"));
+    expect(results).toHaveLength(1);
+    expect(results[0].hits.map((h) => h.preview)).toEqual(["ab foo", "foo"]);
+  });
+
+  it("truncates previews at 200 around the match", async () => {
+    const line = `${"a".repeat(500)}NEEDLE${"b".repeat(500)}`;
+    const { results } = await run([note("a.md", line)], re("needle"));
+    const hit = results[0].hits[0];
+    expect(hit.preview.length).toBeLessThanOrEqual(200);
+    expect(hit.preview).toContain("NEEDLE");
+    expect(line.slice(hit.previewStart, hit.previewStart + hit.preview.length)).toBe(hit.preview);
+    expect(hit.column).toBe(501);
+  });
+
+  it("does not cut a surrogate pair at the preview start", async () => {
+    const line = `${"😀".repeat(100)}NEEDLE${"😀".repeat(100)}`;
+    const { results } = await run([note("a.md", line)], re("needle"));
+    expect(results[0].hits[0].preview).not.toMatch(/^[\uDC00-\uDFFF]/);
+  });
+
+  it("caps hits per file at 100 and flags it", async () => {
+    const { results, summary } = await run([note("a.md", "foo\n".repeat(150))], re("foo"));
+    expect(results[0].hits).toHaveLength(100);
+    expect(results[0].truncated).toBe(true);
+    expect(summary.truncated).toBe(false);
+  });
+
+  it("caps total hits at 2000 and flags the summary", async () => {
+    const notes = Array.from({ length: 30 }, (_, i) => note(`n${String(i).padStart(2, "0")}.md`, "foo\n".repeat(100)));
+    const { summary } = await run(notes, re("foo"));
+    expect(summary.hits).toBe(2000);
+    expect(summary.truncated).toBe(true);
+  });
+
+  it("skips binary (NUL) and huge files", async () => {
+    const { results } = await run(
+      [note("bin.md", "foo\0foo"), note("huge.md", `foo${"x".repeat(2_000_001)}`), note("ok.md", "foo")],
+      re("foo"),
+    );
+    expect(results.map((r) => r.rel)).toEqual(["ok.md"]);
+  });
+
+  it("searches non-UTF-8 leftovers (U+FFFD) and control characters without failing", async () => {
+    const { results } = await run([note("a.md", "�\u0007 foo \u001b[0m")], re("foo"));
+    expect(results[0].hits[0].column).toBe(4);
+  });
+
+  it("handles RTL and emoji content", async () => {
+    const { results } = await run([note("a.md", "שלום 😀 עולם")], re("עולם"));
+    expect(results[0].hits[0]).toMatchObject({ line: 1, column: 9, length: 4 });
+  });
+
+  it("batches by 50 files and yields between batches", async () => {
+    const notes = Array.from({ length: 120 }, (_, i) => note(`n${String(i).padStart(3, "0")}.md`, "foo"));
+    const sizes: number[] = [];
+    await searchNotes(notes, re("foo"), (b) => sizes.push(b.length), new AbortController().signal);
+    expect(sizes).toEqual([50, 50, 20]);
+  });
+
+  it("stops on abort and says so", async () => {
+    const controller = new AbortController();
+    const notes = Array.from({ length: 200 }, (_, i) => note(`n${String(i).padStart(3, "0")}.md`, "foo"));
+    const seen: FileResult[] = [];
+    const summary = await searchNotes(notes, re("foo"), (b) => {
+      seen.push(...b);
+      controller.abort();
+    }, controller.signal);
+    expect(summary.aborted).toBe(true);
+    expect(seen).toHaveLength(50);
+  });
+
+  it("returns aborted at once when the signal is already aborted", async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const { results, summary } = await run([note("a.md", "foo")], re("foo"), controller.signal);
+    expect(results).toEqual([]);
+    expect(summary.aborted).toBe(true);
+  });
+
+  it("no notes → empty summary", async () => {
+    const { summary } = await run([], re("foo"));
+    expect(summary).toMatchObject({ files: 0, hits: 0, truncated: false, aborted: false });
+  });
+});

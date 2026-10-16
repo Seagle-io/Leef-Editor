@@ -1,0 +1,184 @@
+import { describe, expect, it } from "vitest";
+import { NoteIndex, type NoteFile } from "./noteIndex";
+
+const f = (rel: string, content = ""): NoteFile => ({ path: `/w/${rel}`, rel, content });
+const snapshot = (ix: NoteIndex) =>
+  ix.all().map((e) => ({
+    path: e.path,
+    headings: e.headings,
+    back: ix.backlinks(e.path).map((b) => [b.source, b.ref.from, b.ref.raw, b.context]),
+  }));
+
+describe("NoteIndex basics", () => {
+  it("builds, sorts by rel, exposes headings", () => {
+    const ix = NoteIndex.build([f("b.md", "# H1\n## H2"), f("a.md"), f("dir/c.md")]);
+    expect(ix.all().map((e) => e.rel)).toEqual(["a.md", "b.md", "dir/c.md"]);
+    expect(ix.headings("/w/b.md")).toEqual(["H1", "H2"]);
+    expect(ix.headings("/w/nope.md")).toEqual([]);
+    expect(ix.get("/w/a.md")?.key).toBe("a");
+  });
+
+  it("empty index and duplicate paths (last wins)", () => {
+    expect(NoteIndex.build([]).all()).toEqual([]);
+    const ix = NoteIndex.build([f("a.md", "1"), f("a.md", "2")]);
+    expect(ix.all()).toHaveLength(1);
+    expect(ix.get("/w/a.md")?.content).toBe("2");
+  });
+
+  it("resolves by name, case, accents-as-NFC, path, extension", () => {
+    const ix = NoteIndex.build([f("Notes/Été.md"), f("x/y/note.md")]);
+    expect(ix.resolve("été", null)).toBe("/w/Notes/Été.md");
+    expect(ix.resolve("été", null)).toBe("/w/Notes/Été.md");
+    expect(ix.resolve("note.md", null)).toBe("/w/x/y/note.md");
+    expect(ix.resolve("y/note", null)).toBe("/w/x/y/note.md");
+    expect(ix.resolve("x/y/note", null)).toBe("/w/x/y/note.md");
+    expect(ix.resolve("z/note", null)).toBeNull();
+    expect(ix.resolve("absent", null)).toBeNull();
+    expect(ix.resolve("", "/w/Notes/Été.md")).toBe("/w/Notes/Été.md");
+    expect(ix.resolve("", null)).toBeNull();
+    expect(ix.resolve("dir/", null)).toBeNull();
+  });
+
+  it("ambiguity: same folder, then fewer segments, then rel order", () => {
+    const ix = NoteIndex.build([f("a/n.md"), f("b/n.md"), f("b/c/n.md"), f("z.md"), f("b/src.md")]);
+    expect(ix.resolve("n", "/w/b/src.md")).toBe("/w/b/n.md");
+    expect(ix.resolve("n", "/w/z.md")).toBe("/w/a/n.md");
+    expect(ix.resolve("n", null)).toBe("/w/a/n.md");
+    expect(ix.resolve("c/n", null)).toBe("/w/b/c/n.md");
+    const deep = NoteIndex.build([f("p/q/n.md"), f("r/n.md")]);
+    expect(deep.resolve("n", null)).toBe("/w/r/n.md");
+  });
+
+  it("backlinks: sorted, context, no self link, broken ignored, ambiguity", () => {
+    const long = "x".repeat(200);
+    const ix = NoteIndex.build([
+      f("t.md", "# T\nself [[t]]"),
+      f("b.md", "l0\nvoir [[t]] et [[t#T|alias]]\n[[missing]]"),
+      f("a.md", `${long} [[t]]`),
+      f("sub/t.md"),
+    ]);
+    const bl = ix.backlinks("/w/t.md");
+    expect(bl.map((b) => [b.rel, b.ref.line])).toEqual([["a.md", 0], ["b.md", 1], ["b.md", 1]]);
+    expect(bl[1].context).toBe("voir [[t]] et [[t#T|alias]]");
+    expect(bl[0].context).toHaveLength(160);
+    expect(ix.backlinks("/w/sub/t.md")).toEqual([]);
+    expect(ix.backlinks("/w/none.md")).toEqual([]);
+  });
+
+  it("heading-only links resolve to the note itself and are not backlinks", () => {
+    const ix = NoteIndex.build([f("a.md", "# H\n[[#H]]")]);
+    expect(ix.backlinks("/w/a.md")).toEqual([]);
+  });
+
+  it("suggest: unique name vs rel without extension, fuzzy on rel", () => {
+    const ix = NoteIndex.build([f("a/n.md"), f("b/n.md"), f("Alpha.md")]);
+    expect(ix.suggest("alp")).toEqual([{ insert: "Alpha", label: "Alpha", detail: "Alpha.md" }]);
+    expect(ix.suggest("n").map((s) => s.insert)).toEqual(["a/n", "b/n"]);
+    expect(ix.suggest("").map((s) => s.detail)).toEqual(["a/n.md", "Alpha.md", "b/n.md"]);
+    expect(ix.suggest("", 1)).toHaveLength(1);
+    expect(ix.suggest("zzz")).toEqual([]);
+  });
+
+  it("move throws on unknown source; remove of unknown is a no-op", () => {
+    const ix = NoteIndex.build([f("a.md")]);
+    expect(() => ix.move("/w/x.md", "/w/y.md", "y.md")).toThrow("Note inconnue");
+    ix.remove("/w/x.md");
+    expect(ix.all()).toHaveLength(1);
+  });
+});
+
+describe("NoteIndex incremental", () => {
+  it("upsert / remove / move keep backlinks right", () => {
+    const ix = NoteIndex.build([f("a.md", "[[b]]"), f("b.md")]);
+    expect(ix.backlinks("/w/b.md")).toHaveLength(1);
+    ix.upsert(f("a.md", "no link"));
+    expect(ix.backlinks("/w/b.md")).toEqual([]);
+    ix.upsert(f("a.md", "[[b]] [[b]]"));
+    expect(ix.backlinks("/w/b.md")).toHaveLength(2);
+    ix.remove("/w/b.md");
+    expect(ix.backlinks("/w/b.md")).toEqual([]);
+    ix.upsert(f("b.md"));
+    expect(ix.backlinks("/w/b.md")).toHaveLength(2);
+    ix.move("/w/b.md", "/w/c.md", "c.md");
+    expect(ix.backlinks("/w/c.md")).toEqual([]);
+    ix.upsert(f("a.md", "[[c]]"));
+    expect(ix.backlinks("/w/c.md")).toHaveLength(1);
+  });
+
+  it("a new homonym takes over resolution when closer", () => {
+    const ix = NoteIndex.build([f("far/n.md"), f("d/s.md", "[[n]]")]);
+    expect(ix.backlinks("/w/far/n.md")).toHaveLength(1);
+    ix.upsert(f("d/n.md"));
+    expect(ix.backlinks("/w/far/n.md")).toEqual([]);
+    expect(ix.backlinks("/w/d/n.md")).toHaveLength(1);
+    ix.remove("/w/d/n.md");
+    expect(ix.backlinks("/w/far/n.md")).toHaveLength(1);
+  });
+
+  it("property, every upsert/remove/move sequence equals a rebuild", () => {
+    let seed = 42;
+    const rnd = (n: number) => {
+      seed = (seed * 1664525 + 1013904223) >>> 0;
+      return seed % n;
+    };
+    const dirs = ["", "a/", "b/", "a/c/"];
+    const names = ["n1", "n2", "n3", "N1", "été"];
+    const targets = ["n1", "n2", "n3", "a/n1", "c/n2", "été", "missing", "#H", "n1#H|x", ""];
+    const make = (): NoteFile => {
+      const rel = `${dirs[rnd(dirs.length)]}${names[rnd(names.length)]}.md`;
+      let content = "# H\n";
+      for (let i = rnd(4); i > 0; i--) content += `l [[${targets[rnd(targets.length)]}]]\n`;
+      return { path: `/w/${rel}`, rel, content };
+    };
+    for (let round = 0; round < 40; round++) {
+      const ix = NoteIndex.build([]);
+      const live = new Map<string, NoteFile>();
+      for (let step = 0; step < 40; step++) {
+        const op = rnd(4);
+        const keys = [...live.keys()];
+        if (op < 2 || keys.length === 0) {
+          const n = make();
+          ix.upsert(n);
+          live.set(n.path, n);
+        } else if (op === 2) {
+          const p = keys[rnd(keys.length)];
+          ix.remove(p);
+          live.delete(p);
+        } else {
+          const p = keys[rnd(keys.length)];
+          const dest = make();
+          const src = live.get(p) as NoteFile;
+          ix.move(p, dest.path, dest.rel);
+          live.delete(p);
+          live.set(dest.path, { ...dest, content: src.content });
+        }
+        expect(snapshot(ix)).toEqual(snapshot(NoteIndex.build([...live.values()])));
+      }
+    }
+  });
+});
+
+describe("NoteIndex hostile input", () => {
+  it("empty, huge, control characters, unicode, limits", () => {
+    const hostile = [
+      f("empty.md", ""),
+      f("ctl.md", "[[a\u0000b]] \u0007 � \ud800"),
+      f("uni.md", "# 😀 שלום\n[[😀]] [[שלום]] [[é]]"),
+      f("😀.md"),
+      f("שלום.md"),
+      f("é.md"),
+      f("big.md", "[[big]] ".repeat(20_000) + "\n" + "# T\n".repeat(20_000)),
+      f(".md"),
+      f("a".repeat(300) + ".md"),
+    ];
+    const ix = NoteIndex.build(hostile);
+    expect(ix.backlinks("/w/😀.md").map((b) => b.rel)).toEqual(["uni.md"]);
+    expect(ix.backlinks("/w/שלום.md")).toHaveLength(1);
+    expect(ix.backlinks("/w/é.md")).toHaveLength(1);
+    expect(ix.backlinks("/w/big.md")).toEqual([]);
+    expect(ix.headings("/w/big.md")).toHaveLength(20_000);
+    expect(ix.suggest("\u0000")).toEqual([]);
+    expect(ix.suggest("x".repeat(1000))).toEqual([]);
+    expect(ix.suggest("a", 0)).toEqual([]);
+  });
+});

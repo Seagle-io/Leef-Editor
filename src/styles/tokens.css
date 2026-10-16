@@ -1,0 +1,333 @@
+/* Leef — tokens de design. Seul fichier autorisé à contenir des couleurs.
+   Thème : <html data-theme="auto|light|dark" data-accent="blue|purple|pink|red|orange|green|graphite"
+                data-material="auto|opaque"> ; défauts : auto, blue, auto. */
+
+/* ---------- Constantes (indépendantes du thème) ---------- */
+:root {
+  /* Typographie — pile système, 0 police embarquée */
+  --leef-font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI Variable Text", system-ui, sans-serif;
+  --leef-font-serif: ui-serif, "New York", "Iowan Old Style", Charter, Georgia, serif;
+  --leef-font-mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace;
+  --leef-font-content: var(--leef-font-ui);   /* réglage : ui | serif | mono */
+
+  --leef-text-11: 11px;  /* légende, sous-titre de fenêtre, raccourcis */
+  --leef-text-12: 12px;  /* en-têtes de section de barre latérale, aide */
+  --leef-text-13: 13px;  /* corps de l'interface (macOS body) */
+  --leef-text-15: 15px;  /* corps du document (défaut), titre de feuille */
+  --leef-text-17: 17px;  /* h3 du document, champ de la palette */
+  --leef-text-22: 22px;  /* h2 du document */
+  --leef-text-28: 28px;  /* h1 du document */
+  --leef-leading-ui: 1.3;
+  --leef-leading-content: 1.6;
+  --leef-leading-heading: 1.2;
+  --leef-weight-regular: 400;
+  --leef-weight-medium: 500;
+  --leef-weight-semibold: 600;
+  --leef-weight-bold: 700;
+
+  --leef-content-size: var(--leef-text-15);   /* réglage : 13 → 22 px, pas 1 */
+  --leef-measure: 68ch;                        /* réglage : 60ch | 68ch | 80ch | none */
+
+  /* Grille 4 pt */
+  --leef-space-1: 4px;
+  --leef-space-2: 8px;
+  --leef-space-3: 12px;
+  --leef-space-4: 16px;
+  --leef-space-5: 20px;
+  --leef-space-6: 24px;
+  --leef-space-8: 32px;
+  --leef-space-12: 48px;
+
+  /* Rayons */
+  --leef-radius-sm: 6px;   /* boutons, champs, lignes de liste */
+  --leef-radius-md: 8px;   /* contrôles segmentés, blocs de code */
+  --leef-radius-lg: 10px;  /* popovers, menus */
+  --leef-radius-xl: 12px;  /* feuilles, palette */
+  --leef-radius-full: 999px;
+
+  /* Dimensions */
+  --leef-toolbar-h: 52px;
+  --leef-tabbar-h: 32px;
+  --leef-sidebar-w: 240px;
+  --leef-sidebar-min: 180px;
+  --leef-sidebar-max: 360px;
+  --leef-inspector-w: 260px;
+  --leef-control-h: 28px;
+  --leef-control-h-sm: 24px;
+  --leef-row-h: 28px;
+  --leef-icon: 20px;
+  --leef-icon-sm: 16px;
+  --leef-icon-stroke: 1.5px;
+  --leef-hairline: 1px;
+
+  /* Mouvements */
+  --leef-dur-fast: 120ms;   /* survol, pression, interrupteur */
+  --leef-dur-base: 200ms;   /* popover, menu, segment, volet */
+  --leef-dur-slow: 320ms;   /* feuille, palette, barre latérale */
+  --leef-ease-out: cubic-bezier(0.2, 0, 0, 1);
+  --leef-ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+  --leef-ease-spring: cubic-bezier(0.32, 0.72, 0, 1);
+
+  /* Plans */
+  --leef-z-toolbar: 10;
+  --leef-z-popover: 30;
+  --leef-z-sheet: 40;
+  --leef-z-palette: 50;
+
+  /* Matières — floutage appliqué seulement si translucide (voir bas de fichier) */
+  --leef-blur: blur(24px) saturate(180%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --leef-dur-base: 1ms;
+    --leef-dur-slow: 1ms;
+    --leef-ease-spring: linear;
+  }
+}
+
+/* ---------- Clair ---------- */
+:root {
+  color-scheme: light;
+  --leef-bg-window: #e9e9ec;
+  --leef-bg-sidebar: #f2f2f4;
+  --leef-bg-toolbar: #fafafb;
+  --leef-bg-content: #ffffff;
+  --leef-bg-elevated: #ffffff;
+  --leef-bg-control: #e6e6e9;
+  --leef-bg-control-thumb: #ffffff;
+  --leef-bg-hover: rgba(0, 0, 0, 0.05);
+  --leef-bg-pressed: rgba(0, 0, 0, 0.1);
+  --leef-bg-code: #f4f4f6;
+  --leef-bg-selection-muted: #dcdce1;
+  --leef-separator: #e2e2e6;
+  --leef-border-control: #8c8c93;
+
+  --leef-material-sidebar-tint: rgba(242, 242, 244, 0.72);
+  --leef-material-toolbar-tint: rgba(250, 250, 251, 0.8);
+  --leef-material-elevated-tint: rgba(255, 255, 255, 0.86);
+  --leef-scrim: rgba(0, 0, 0, 0.18);
+
+  --leef-text: #1d1d1f;
+  --leef-text-secondary: #5f5f66;
+  --leef-text-tertiary: #6c6c73;
+  --leef-text-on-accent: #ffffff;
+
+  --leef-success: #1f7a33;
+  --leef-success-bg: #ebf5ed;
+  --leef-warning: #8f5400;
+  --leef-warning-bg: #fdf3e2;
+  --leef-danger: #c4161c;
+  --leef-danger-bg: #fcebec;
+
+  /* Coloration syntaxique (CM6 + blocs de code) — palette Xcode clair */
+  --leef-syntax-keyword: #9b2393;
+  --leef-syntax-string: #c41a16;
+  --leef-syntax-number: #1c00cf;
+  --leef-syntax-comment: #5d6c79;
+  --leef-syntax-type: #0b4f79;
+  --leef-syntax-function: #326d74;
+
+  --leef-page-canvas: var(--leef-bg-window);
+  --leef-page-paper: #ffffff;
+
+  --leef-shadow-popover: 0 0 0 0.5px rgba(0, 0, 0, 0.14), 0 2px 6px rgba(0, 0, 0, 0.08), 0 10px 28px rgba(0, 0, 0, 0.14);
+  --leef-shadow-window: 0 0 0 0.5px rgba(0, 0, 0, 0.16), 0 4px 12px rgba(0, 0, 0, 0.1), 0 24px 64px rgba(0, 0, 0, 0.24);
+  --leef-shadow-thumb: 0 0 0 0.5px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.14);
+  --leef-shadow-page: 0 0 0 0.5px rgba(0, 0, 0, 0.12), 0 2px 10px rgba(0, 0, 0, 0.1);
+
+  /* Barre de titre macOS — maquettes seulement (dessinée par l'OS dans l'app) */
+  --leef-traffic-close: #ff5f57;
+  --leef-traffic-min: #febc2e;
+  --leef-traffic-max: #28c840;
+}
+
+/* Accents clair : texte/lien, remplissage, surlignage de sélection.
+   Sélecteur sans :root → un élément [data-accent] (pastille de réglage) porte sa propre teinte. */
+:root,
+[data-accent="blue"] { --leef-accent: #0066d6; --leef-accent-fill: #0066d6; --leef-text-selection: #c8ddf8; }
+[data-accent="purple"] { --leef-accent: #8944ab; --leef-accent-fill: #8944ab; --leef-text-selection: #e6d6f0; }
+[data-accent="pink"] { --leef-accent: #c4245e; --leef-accent-fill: #c4245e; --leef-text-selection: #f6d3df; }
+[data-accent="red"] { --leef-accent: #c9141f; --leef-accent-fill: #c9141f; --leef-text-selection: #f8d2d4; }
+[data-accent="orange"] { --leef-accent: #a84f00; --leef-accent-fill: #a84f00; --leef-text-selection: #f5dec8; }
+[data-accent="green"] { --leef-accent: #1f7a33; --leef-accent-fill: #1f7a33; --leef-text-selection: #d0e8d5; }
+[data-accent="graphite"] { --leef-accent: #5f5f66; --leef-accent-fill: #5f5f66; --leef-text-selection: #dcdce1; }
+
+/* ---------- Sombre (data-theme="dark", ou auto + système sombre) ---------- */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --leef-bg-window: #141416;
+  --leef-bg-sidebar: #232325;
+  --leef-bg-toolbar: #29292b;
+  --leef-bg-content: #1c1c1e;
+  --leef-bg-elevated: #2c2c2e;
+  --leef-bg-control: #353538;
+  --leef-bg-control-thumb: #5b5b60;
+  --leef-bg-hover: rgba(255, 255, 255, 0.07);
+  --leef-bg-pressed: rgba(255, 255, 255, 0.13);
+  --leef-bg-code: #262628;
+  --leef-bg-selection-muted: #3a3a3d;
+  --leef-separator: #38383b;
+  --leef-border-control: #7a7a81;
+  --leef-material-sidebar-tint: rgba(35, 35, 37, 0.7);
+  --leef-material-toolbar-tint: rgba(41, 41, 43, 0.8);
+  --leef-material-elevated-tint: rgba(44, 44, 46, 0.86);
+  --leef-scrim: rgba(0, 0, 0, 0.42);
+  --leef-text: #f5f5f7;
+  --leef-text-secondary: #aeaeb4;
+  --leef-text-tertiary: #95959c;
+  --leef-text-on-accent: #ffffff;
+  --leef-success: #3ccf65;
+  --leef-success-bg: #1a2e1f;
+  --leef-warning: #ffb340;
+  --leef-warning-bg: #33280f;
+  --leef-danger: #ff6b63;
+  --leef-danger-bg: #3a1d1e;
+  --leef-syntax-keyword: #fc5fa3;
+  --leef-syntax-string: #fc6a5d;
+  --leef-syntax-number: #d0bf69;
+  --leef-syntax-comment: #8a96a3;
+  --leef-syntax-type: #5dd8ff;
+  --leef-syntax-function: #67b7a4;
+  --leef-page-canvas: var(--leef-bg-window);
+  --leef-page-paper: #232325;
+  --leef-shadow-popover: 0 0 0 0.5px rgba(255, 255, 255, 0.14), 0 2px 6px rgba(0, 0, 0, 0.3), 0 10px 28px rgba(0, 0, 0, 0.45);
+  --leef-shadow-window: 0 0 0 0.5px rgba(255, 255, 255, 0.16), 0 4px 12px rgba(0, 0, 0, 0.35), 0 24px 64px rgba(0, 0, 0, 0.55);
+  --leef-shadow-thumb: 0 0 0 0.5px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(0, 0, 0, 0.4);
+  --leef-shadow-page: 0 0 0 0.5px rgba(255, 255, 255, 0.1), 0 2px 12px rgba(0, 0, 0, 0.5);
+}
+:root[data-theme="dark"],
+:root[data-theme="dark"][data-accent="blue"],
+:root[data-theme="dark"] [data-accent="blue"] { --leef-accent: #3d9bff; --leef-accent-fill: #0a6ed1; --leef-text-selection: #1f456f; }
+:root[data-theme="dark"][data-accent="purple"],
+:root[data-theme="dark"] [data-accent="purple"] { --leef-accent: #c58af5; --leef-accent-fill: #8a44b8; --leef-text-selection: #47305e; }
+:root[data-theme="dark"][data-accent="pink"],
+:root[data-theme="dark"] [data-accent="pink"] { --leef-accent: #ff7096; --leef-accent-fill: #b8245a; --leef-text-selection: #592637; }
+:root[data-theme="dark"][data-accent="red"],
+:root[data-theme="dark"] [data-accent="red"] { --leef-accent: #ff6b63; --leef-accent-fill: #c4161c; --leef-text-selection: #592424; }
+:root[data-theme="dark"][data-accent="orange"],
+:root[data-theme="dark"] [data-accent="orange"] { --leef-accent: #ff9f0a; --leef-accent-fill: #a34c00; --leef-text-selection: #573a16; }
+:root[data-theme="dark"][data-accent="green"],
+:root[data-theme="dark"] [data-accent="green"] { --leef-accent: #3ccf65; --leef-accent-fill: #1c7330; --leef-text-selection: #1f4729; }
+:root[data-theme="dark"][data-accent="graphite"],
+:root[data-theme="dark"] [data-accent="graphite"] { --leef-accent: #aeaeb4; --leef-accent-fill: #5b5b60; --leef-text-selection: #48484c; }
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]):not([data-theme="dark"]) {
+    color-scheme: dark;
+    --leef-bg-window: #141416;
+    --leef-bg-sidebar: #232325;
+    --leef-bg-toolbar: #29292b;
+    --leef-bg-content: #1c1c1e;
+    --leef-bg-elevated: #2c2c2e;
+    --leef-bg-control: #353538;
+    --leef-bg-control-thumb: #5b5b60;
+    --leef-bg-hover: rgba(255, 255, 255, 0.07);
+    --leef-bg-pressed: rgba(255, 255, 255, 0.13);
+    --leef-bg-code: #262628;
+    --leef-bg-selection-muted: #3a3a3d;
+    --leef-separator: #38383b;
+    --leef-border-control: #7a7a81;
+    --leef-material-sidebar-tint: rgba(35, 35, 37, 0.7);
+    --leef-material-toolbar-tint: rgba(41, 41, 43, 0.8);
+    --leef-material-elevated-tint: rgba(44, 44, 46, 0.86);
+    --leef-scrim: rgba(0, 0, 0, 0.42);
+    --leef-text: #f5f5f7;
+    --leef-text-secondary: #aeaeb4;
+    --leef-text-tertiary: #95959c;
+    --leef-text-on-accent: #ffffff;
+    --leef-success: #3ccf65;
+    --leef-success-bg: #1a2e1f;
+    --leef-warning: #ffb340;
+    --leef-warning-bg: #33280f;
+    --leef-danger: #ff6b63;
+    --leef-danger-bg: #3a1d1e;
+    --leef-syntax-keyword: #fc5fa3;
+    --leef-syntax-string: #fc6a5d;
+    --leef-syntax-number: #d0bf69;
+    --leef-syntax-comment: #8a96a3;
+    --leef-syntax-type: #5dd8ff;
+    --leef-syntax-function: #67b7a4;
+    --leef-page-canvas: var(--leef-bg-window);
+    --leef-page-paper: #232325;
+    --leef-shadow-popover: 0 0 0 0.5px rgba(255, 255, 255, 0.14), 0 2px 6px rgba(0, 0, 0, 0.3), 0 10px 28px rgba(0, 0, 0, 0.45);
+    --leef-shadow-window: 0 0 0 0.5px rgba(255, 255, 255, 0.16), 0 4px 12px rgba(0, 0, 0, 0.35), 0 24px 64px rgba(0, 0, 0, 0.55);
+    --leef-shadow-thumb: 0 0 0 0.5px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(0, 0, 0, 0.4);
+    --leef-shadow-page: 0 0 0 0.5px rgba(255, 255, 255, 0.1), 0 2px 12px rgba(0, 0, 0, 0.5);
+  }
+  :root:not([data-theme="light"]):not([data-theme="dark"]),
+  :root:not([data-theme="light"]):not([data-theme="dark"])[data-accent="blue"],
+  :root:not([data-theme="light"]):not([data-theme="dark"]) [data-accent="blue"] { --leef-accent: #3d9bff; --leef-accent-fill: #0a6ed1; --leef-text-selection: #1f456f; }
+  :root:not([data-theme="light"]):not([data-theme="dark"])[data-accent="purple"],
+  :root:not([data-theme="light"]):not([data-theme="dark"]) [data-accent="purple"] { --leef-accent: #c58af5; --leef-accent-fill: #8a44b8; --leef-text-selection: #47305e; }
+  :root:not([data-theme="light"]):not([data-theme="dark"])[data-accent="pink"],
+  :root:not([data-theme="light"]):not([data-theme="dark"]) [data-accent="pink"] { --leef-accent: #ff7096; --leef-accent-fill: #b8245a; --leef-text-selection: #592637; }
+  :root:not([data-theme="light"]):not([data-theme="dark"])[data-accent="red"],
+  :root:not([data-theme="light"]):not([data-theme="dark"]) [data-accent="red"] { --leef-accent: #ff6b63; --leef-accent-fill: #c4161c; --leef-text-selection: #592424; }
+  :root:not([data-theme="light"]):not([data-theme="dark"])[data-accent="orange"],
+  :root:not([data-theme="light"]):not([data-theme="dark"]) [data-accent="orange"] { --leef-accent: #ff9f0a; --leef-accent-fill: #a34c00; --leef-text-selection: #573a16; }
+  :root:not([data-theme="light"]):not([data-theme="dark"])[data-accent="green"],
+  :root:not([data-theme="light"]):not([data-theme="dark"]) [data-accent="green"] { --leef-accent: #3ccf65; --leef-accent-fill: #1c7330; --leef-text-selection: #1f4729; }
+  :root:not([data-theme="light"]):not([data-theme="dark"])[data-accent="graphite"],
+  :root:not([data-theme="light"]):not([data-theme="dark"]) [data-accent="graphite"] { --leef-accent: #aeaeb4; --leef-accent-fill: #5b5b60; --leef-text-selection: #48484c; }
+}
+
+/* ---------- Dérivés (suivent thème et accent) ---------- */
+:root {
+  --leef-focus-ring: var(--leef-accent);
+  --leef-shadow-focus: 0 0 0 1px var(--leef-accent), 0 0 0 4px var(--leef-text-selection);
+  --leef-link: var(--leef-accent);
+  --leef-info: var(--leef-accent);
+  --leef-info-bg: var(--leef-bg-code);
+
+  /* Matières : opaque par défaut = repli (WebKitGTK/Tauri Linux, cf. BUG.md opacité) */
+  --leef-material-toolbar: var(--leef-bg-toolbar);
+  --leef-material-elevated: var(--leef-bg-elevated);
+  --leef-material-sidebar: var(--leef-bg-sidebar);
+  --leef-material-filter: none;
+}
+/* Translucide seulement si le moteur sait flouter, que l'app ne force pas l'opaque
+   et que l'utilisateur n'a pas demandé moins de transparence. */
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  :root:not([data-material="opaque"]) {
+    --leef-material-toolbar: var(--leef-material-toolbar-tint);
+    --leef-material-elevated: var(--leef-material-elevated-tint);
+    --leef-material-filter: var(--leef-blur);
+  }
+  /* Barre latérale : translucide seulement si la fenêtre native l'est
+     (Tauri windowEffects macOS/Windows) — sinon rien à voir derrière. */
+  :root[data-material="vibrant"] {
+    --leef-material-sidebar: var(--leef-material-sidebar-tint);
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  :root:not(#leef) {
+    --leef-material-toolbar: var(--leef-bg-toolbar);
+    --leef-material-elevated: var(--leef-bg-elevated);
+    --leef-material-sidebar: var(--leef-bg-sidebar);
+    --leef-material-filter: none;
+  }
+}
+
+/* ---------- Éditeur (contrat §6.1) ---------- */
+:root {
+  --leef-font-editor: var(--leef-font-mono);
+  --leef-editor-size: 14px;
+}
+
+/* ---------- Alias transitoires, retirés en L18 (contrat §6.2) ---------- */
+:root {
+  --bg: var(--leef-bg-content);
+  --fg: var(--leef-text);
+  --muted-fg: var(--leef-text-secondary);
+  --border: var(--leef-separator);
+  --toolbar-bg: var(--leef-bg-toolbar);
+  --toolbar-fg: var(--leef-accent);
+  --button-bg: var(--leef-bg-control);
+  --button-hover-bg: var(--leef-bg-hover);
+  --code-bg: var(--leef-bg-code);
+  --error-bg: var(--leef-danger-bg);
+  --error-fg: var(--leef-danger);
+  --content-font: var(--leef-font-content);
+  --page-canvas: var(--leef-page-canvas);
+}

@@ -1,7 +1,7 @@
 import MarkdownIt from "markdown-it";
 import footnote from "markdown-it-footnote";
 import admonition from "markdown-it-admonition";
-import copyIconSvg from "./icons/copy.svg?raw";
+import { icons } from "./icons";
 
 // html:false (default) keeps raw HTML in the source escaped as text,
 // preventing script injection when rendering user-authored markdown.
@@ -53,7 +53,7 @@ md.renderer.rules.fence = (tokens, idx, options, env, self) => {
     return `<pre class="mermaid" data-src="${source}">${source}</pre>`;
   }
   const rendered = defaultFence(tokens, idx, options, env, self);
-  return `<div class="code-block" data-lang="${md.utils.escapeHtml(info)}"><button class="copy-code-btn" type="button" aria-label="Copier le code">${copyIconSvg}</button>${rendered}</div>`;
+  return `<div class="code-block" data-lang="${md.utils.escapeHtml(info)}"><button class="copy-code-btn" type="button" aria-label="Copier le code">${icons.copy}</button>${rendered}</div>`;
 };
 
 type Token = ReturnType<typeof md.parse>[number];

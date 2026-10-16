@@ -101,7 +101,7 @@
       const page = document.createElement("div");
       page.className = "page";
       body = document.createElement("div");
-      body.className = "page-body";
+      body.className = "page-body leef-content";
       page.append(...(hasHeader ? [band("page-header")] : []), body, ...(hasFooter ? [band("page-footer")] : []));
       pagesEl.appendChild(page);
       used = 0;
@@ -394,7 +394,7 @@
 <div class="preview" class:paged bind:this={container} on:click={handlePreviewClick} on:scroll={updateQuickBar}>
   <!-- svelte-ignore a11y-no-noninteractive-tabindex -->
   <div
-    class="flow"
+    class="flow leef-content"
     class:editing={canEdit}
     bind:this={flow}
     contenteditable={canEdit}
@@ -442,12 +442,11 @@
     height: 100%;
     overflow: auto;
     padding: 0 1rem;
-    font-family: var(--content-font);
   }
 
   /* Unlocked preview: a subtle frame so it's obvious the rendering is live. */
   .flow.editing {
-    outline: 1px dashed var(--toolbar-fg);
+    outline: 1px dashed var(--leef-accent);
     outline-offset: 0.4rem;
     border-radius: 2px;
     min-height: 4rem;
@@ -464,10 +463,10 @@
     align-items: center;
     gap: 0.15rem;
     padding: 0.2rem;
-    background: var(--toolbar-bg);
-    border: 1px solid var(--border);
+    background: var(--leef-bg-elevated);
+    border: 1px solid var(--leef-separator);
     border-radius: 6px;
-    box-shadow: 0 3px 10px rgba(0, 0, 0, 0.2);
+    box-shadow: var(--leef-shadow-popover);
   }
   .quick-bar button {
     display: inline-flex;
@@ -479,17 +478,17 @@
     border: none;
     border-radius: 4px;
     background: none;
-    color: var(--toolbar-fg);
+    color: var(--leef-accent);
     cursor: pointer;
   }
   .quick-bar button:hover {
-    background: var(--button-hover-bg);
+    background: var(--leef-bg-hover);
   }
   .quick-sep {
     width: 1px;
     align-self: stretch;
     margin: 0 0.15rem;
-    background: var(--border);
+    background: var(--leef-separator);
   }
   @media print {
     .quick-bar {
@@ -504,7 +503,7 @@
      exactly one text-column wide, and the visible content is the page boxes. */
   .preview.paged {
     padding: 1.5rem 0;
-    background: var(--page-canvas, #8a8a8a22);
+    background: var(--leef-page-canvas);
   }
   .preview.paged .flow {
     position: absolute;
@@ -531,9 +530,9 @@
     height: var(--page-height, 297mm);
     padding: var(--page-margin, 20mm);
     overflow: hidden;
-    background: var(--bg);
-    border: 1px solid var(--border);
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15);
+    background: var(--leef-page-paper);
+    border: 1px solid var(--leef-separator);
+    box-shadow: var(--leef-shadow-page);
   }
   .preview :global(.page-body) {
     flex: 1;
@@ -551,7 +550,7 @@
     flex-shrink: 0;
     height: var(--page-band, 10mm);
     font-size: 0.75rem;
-    color: var(--muted-fg, #666);
+    color: var(--leef-text-secondary);
   }
   /* Left / centre / right slots: the middle one takes the slack so the outer
      two stay pinned to the text edges. */
@@ -561,12 +560,12 @@
     text-align: center;
   }
   .preview :global(.page-header) {
-    border-bottom: 1px solid var(--border, #ddd);
+    border-bottom: 1px solid var(--leef-separator);
     align-items: flex-start;
     padding-bottom: 0.3rem;
   }
   .preview :global(.page-footer) {
-    border-top: 1px solid var(--border, #ddd);
+    border-top: 1px solid var(--leef-separator);
     align-items: flex-end;
     padding-top: 0.3rem;
   }
@@ -576,7 +575,7 @@
   .preview :global(.page-break) {
     position: relative;
     height: 0;
-    border-top: 1px dashed var(--toolbar-fg, #3a55d9);
+    border-top: 1px dashed var(--leef-accent);
     margin: 1.75rem 0;
     opacity: 0.6;
   }
@@ -587,11 +586,11 @@
     left: 50%;
     transform: translateX(-50%);
     padding: 0 0.4rem;
-    background: var(--bg, #fff);
+    background: var(--leef-page-paper);
     font-size: 0.65rem;
     text-transform: uppercase;
     letter-spacing: 0.05em;
-    color: var(--toolbar-fg, #3a55d9);
+    color: var(--leef-accent);
   }
   /* Printing: one .page box per sheet. The `@page` rule (size + zero margin)
      is injected by page.ts; the box's own padding provides the margins. The
@@ -631,153 +630,5 @@
     .preview :global(.page:last-child) {
       break-after: auto;
     }
-  }
-
-  .preview :global(h1),
-  .preview :global(h2),
-  .preview :global(h3),
-  .preview :global(h4),
-  .preview :global(h5),
-  .preview :global(h6) {
-    scroll-margin-top: 1rem;
-  }
-  .preview :global(pre) {
-    background: var(--code-bg, #f4f4f4);
-    padding: 0.75rem;
-    border-radius: 4px;
-    overflow-x: auto;
-  }
-  .preview :global(code) {
-    font-family: "SF Mono", Consolas, monospace;
-  }
-  .preview :global(p code),
-  .preview :global(li code) {
-    background: var(--code-bg, #f4f4f4);
-    padding: 0.1em 0.35em;
-    border-radius: 3px;
-    font-size: 0.9em;
-  }
-  .preview :global(blockquote) {
-    margin: 0.75rem 0;
-    padding: 0.1rem 1rem;
-    border-left: 3px solid var(--toolbar-fg, #888);
-    color: var(--muted-fg, #666);
-  }
-  .preview :global(a) {
-    color: var(--toolbar-fg, #3a55d9);
-  }
-  .preview :global(hr) {
-    border: none;
-    border-top: 1px solid var(--border, #ddd);
-    margin: 1.5rem 0;
-  }
-  .preview :global(table) {
-    border-collapse: collapse;
-    margin: 0.75rem 0;
-  }
-  .preview :global(th),
-  .preview :global(td) {
-    border: 1px solid var(--border, #ddd);
-    padding: 0.4rem 0.7rem;
-  }
-  .preview :global(th) {
-    background: var(--code-bg, #f4f4f4);
-  }
-  .preview :global(img) {
-    max-width: 100%;
-  }
-  .preview :global(.footnotes) {
-    margin-top: 2rem;
-    padding-top: 0.5rem;
-    font-size: 0.85em;
-    color: var(--muted-fg, #666);
-  }
-  .preview :global(.footnote-ref) {
-    font-size: 0.75em;
-    vertical-align: super;
-  }
-  .preview :global(pre.mermaid) {
-    background: none;
-    padding: 0;
-    display: flex;
-    justify-content: center;
-  }
-  .preview :global(.code-block) {
-    position: relative;
-  }
-  .preview :global(.code-block pre) {
-    margin: 0;
-  }
-  .preview :global(.copy-code-btn) {
-    position: absolute;
-    top: 0.4rem;
-    right: 0.4rem;
-    width: 1.8rem;
-    height: 1.8rem;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    border: 1px solid var(--border, #ddd);
-    border-radius: 4px;
-    background: var(--bg, #fff);
-    color: var(--muted-fg, #666);
-    cursor: pointer;
-    opacity: 0;
-    transition: opacity 0.15s ease;
-  }
-  .preview :global(.copy-code-btn svg) {
-    width: 1rem;
-    height: 1rem;
-    fill: currentColor;
-  }
-  .preview :global(.code-block:hover .copy-code-btn),
-  .preview :global(.copy-code-btn:focus-visible) {
-    opacity: 1;
-  }
-  .preview :global(.copy-code-btn.copied) {
-    opacity: 1;
-    color: #2e7d32;
-    border-color: #2e7d32;
-  }
-
-  /* mkdocs-material-style admonitions */
-  .preview :global(.admonition) {
-    margin: 1rem 0;
-    padding: 0.6rem 0.9rem;
-    border-left: 4px solid var(--toolbar-fg, #3a55d9);
-    border-radius: 4px;
-    background: var(--code-bg, #f4f4f4);
-  }
-  .preview :global(.admonition-title) {
-    margin: 0 0 0.4rem;
-    font-weight: 700;
-    color: var(--toolbar-fg, #3a55d9);
-  }
-  .preview :global(.admonition p:last-child) {
-    margin-bottom: 0;
-  }
-  .preview :global(.admonition.tip),
-  .preview :global(.admonition.success) {
-    border-left-color: #2e7d32;
-  }
-  .preview :global(.admonition.tip .admonition-title),
-  .preview :global(.admonition.success .admonition-title) {
-    color: #2e7d32;
-  }
-  .preview :global(.admonition.warning) {
-    border-left-color: #e6a700;
-  }
-  .preview :global(.admonition.warning .admonition-title) {
-    color: #a67200;
-  }
-  .preview :global(.admonition.danger),
-  .preview :global(.admonition.failure),
-  .preview :global(.admonition.bug) {
-    border-left-color: #d32f2f;
-  }
-  .preview :global(.admonition.danger .admonition-title),
-  .preview :global(.admonition.failure .admonition-title),
-  .preview :global(.admonition.bug .admonition-title) {
-    color: #d32f2f;
   }
 </style>

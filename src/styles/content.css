@@ -1,0 +1,159 @@
+/* Contenu rendu (aperçu, pages, export) : tout sous .leef-content. */
+.leef-content {
+  font-family: var(--leef-font-content);
+  font-size: var(--leef-content-size);
+  line-height: var(--leef-leading-content);
+  color: var(--leef-text);
+}
+.leef-content :is(h1, h2, h3, h4, h5, h6) {
+  line-height: var(--leef-leading-heading);
+  scroll-margin-top: var(--leef-space-4);
+}
+.leef-content h1 {
+  font-size: var(--leef-text-28);
+  font-weight: var(--leef-weight-bold);
+  margin: 0 0 var(--leef-space-4);
+}
+.leef-content h2 {
+  font-size: var(--leef-text-22);
+  font-weight: var(--leef-weight-semibold);
+  margin: var(--leef-space-8) 0 var(--leef-space-2);
+}
+.leef-content h3 {
+  font-size: var(--leef-text-17);
+  font-weight: var(--leef-weight-semibold);
+  margin: var(--leef-space-6) 0 var(--leef-space-2);
+}
+.leef-content :is(p, ul, ol, pre, table, blockquote) {
+  margin-top: 0;
+  margin-bottom: var(--leef-space-4);
+}
+.leef-content pre {
+  background: var(--leef-bg-code);
+  padding: var(--leef-space-3);
+  border-radius: var(--leef-radius-md);
+  overflow-x: auto;
+}
+.leef-content code {
+  font-family: var(--leef-font-mono);
+  font-size: 0.87em;
+}
+.leef-content :is(p, li) code {
+  background: var(--leef-bg-code);
+  padding: 0.1em 0.35em;
+  border-radius: var(--leef-radius-sm);
+}
+.leef-content blockquote {
+  padding: 0.1rem var(--leef-space-4);
+  border-left: 3px solid var(--leef-accent);
+  color: var(--leef-text-secondary);
+}
+.leef-content a {
+  color: var(--leef-link);
+}
+.leef-content hr {
+  border: none;
+  border-top: var(--leef-hairline) solid var(--leef-separator);
+  margin: var(--leef-space-6) 0;
+}
+.leef-content table {
+  border-collapse: collapse;
+}
+.leef-content :is(th, td) {
+  border: var(--leef-hairline) solid var(--leef-separator);
+  padding: var(--leef-space-2) var(--leef-space-3);
+}
+.leef-content th {
+  background: var(--leef-bg-code);
+}
+.leef-content img {
+  max-width: 100%;
+}
+.leef-content .footnotes {
+  margin-top: var(--leef-space-8);
+  padding-top: var(--leef-space-2);
+  font-size: var(--leef-text-13);
+  color: var(--leef-text-secondary);
+}
+.leef-content .footnote-ref {
+  font-size: 0.75em;
+  vertical-align: super;
+}
+.leef-content pre.mermaid {
+  background: none;
+  padding: 0;
+  display: flex;
+  justify-content: center;
+}
+.leef-content .code-block {
+  position: relative;
+}
+.leef-content .code-block pre {
+  margin: 0;
+}
+.leef-content .copy-code-btn {
+  position: absolute;
+  top: var(--leef-space-2);
+  right: var(--leef-space-2);
+  width: var(--leef-control-h);
+  height: var(--leef-control-h);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: var(--leef-hairline) solid var(--leef-separator);
+  border-radius: var(--leef-radius-sm);
+  background: var(--leef-bg-content);
+  color: var(--leef-text-secondary);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--leef-dur-fast) var(--leef-ease-out);
+}
+.leef-content .copy-code-btn svg {
+  width: var(--leef-icon-sm);
+  height: var(--leef-icon-sm);
+  fill: currentColor;
+}
+.leef-content .code-block:hover .copy-code-btn,
+.leef-content .copy-code-btn:focus-visible {
+  opacity: 1;
+}
+.leef-content .copy-code-btn.copied {
+  opacity: 1;
+  color: var(--leef-success);
+  border-color: var(--leef-success);
+}
+
+/* Encadrés de type mkdocs-material */
+.leef-content .admonition {
+  margin: var(--leef-space-4) 0;
+  padding: var(--leef-space-2) var(--leef-space-3);
+  border-left: 4px solid var(--leef-accent);
+  border-radius: var(--leef-radius-sm);
+  background: var(--leef-bg-code);
+}
+.leef-content .admonition-title {
+  margin: 0 0 var(--leef-space-1);
+  font-weight: var(--leef-weight-bold);
+  color: var(--leef-accent);
+}
+.leef-content .admonition p:last-child {
+  margin-bottom: 0;
+}
+.leef-content .admonition:is(.tip, .success) {
+  border-left-color: var(--leef-success);
+}
+.leef-content .admonition:is(.tip, .success) .admonition-title {
+  color: var(--leef-success);
+}
+.leef-content .admonition.warning {
+  border-left-color: var(--leef-warning);
+}
+.leef-content .admonition.warning .admonition-title {
+  color: var(--leef-warning);
+}
+.leef-content .admonition:is(.danger, .failure, .bug) {
+  border-left-color: var(--leef-danger);
+}
+.leef-content .admonition:is(.danger, .failure, .bug) .admonition-title {
+  color: var(--leef-danger);
+}

@@ -12,6 +12,13 @@
     "fs:allow-read-dir",
     "fs:allow-write-text-file",
     "fs:allow-read-file",
-    "fs:allow-write-file"
+    "fs:allow-write-file",
+    "fs:allow-appconfig-read-recursive",
+    "fs:allow-appconfig-read",
+    "fs:allow-appconfig-write",
+    "fs:allow-appconfig-write-recursive",
+    "fs:allow-rename",
+    "fs:allow-exists",
+    "fs:allow-mkdir"
   ]
 }

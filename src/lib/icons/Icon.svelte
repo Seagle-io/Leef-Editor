@@ -20,6 +20,8 @@
   .icon :global(svg) {
     width: 100%;
     height: 100%;
-    fill: currentColor;
+  }
+  .icon :global(svg *) {
+    vector-effect: non-scaling-stroke;
   }
 </style>

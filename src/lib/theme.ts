@@ -17,6 +17,18 @@ export const themes: ThemeOption[] = [
 const THEME_IDS = themes.map((t) => t.id);
 const STORAGE_KEY = "gmd-theme";
 
+/** Provisoire jusqu'à L04/L13 : les thèmes à palette propre se replient sur clair/sombre. */
+const DATA_THEME: Record<ThemeId, "light" | "dark"> = {
+  light: "light",
+  dark: "dark",
+  dracula: "dark",
+  solarized: "light",
+};
+
+export function dataThemeOf(id: ThemeId): "light" | "dark" {
+  return DATA_THEME[id];
+}
+
 function isThemeId(value: string | null): value is ThemeId {
   return value !== null && (THEME_IDS as string[]).includes(value);
 }
@@ -30,7 +42,7 @@ function initialTheme(): ThemeId {
 export const theme = writable<ThemeId>(initialTheme());
 
 theme.subscribe((value) => {
-  document.documentElement.dataset.theme = value;
+  document.documentElement.dataset.theme = dataThemeOf(value);
   localStorage.setItem(STORAGE_KEY, value);
 });
 

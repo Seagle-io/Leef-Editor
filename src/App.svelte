@@ -405,69 +405,12 @@ console.log("hello gmd");
 </main>
 
 <style>
-  :global(:root) {
-    --bg: #ffffff;
-    --fg: #1a1a1a;
-    --muted-fg: #666666;
-    --border: #dddddd;
-    --toolbar-bg: #fafafa;
-    --toolbar-fg: #3a55d9;
-    --button-bg: #fafafa;
-    --button-hover-bg: #eef0fd;
-    --code-bg: #f4f4f4;
-    --error-bg: #fdecea;
-    --error-fg: #b3261e;
-    --content-font: "Inter", system-ui, sans-serif;
-    color-scheme: light;
-  }
-  :global(:root[data-theme="dark"]) {
-    --bg: #1e1e1e;
-    --fg: #e6e6e6;
-    --muted-fg: #999999;
-    --toolbar-fg: #9db1ff;
-    --border: #3a3a3a;
-    --toolbar-bg: #252525;
-    --button-bg: #2d2d2d;
-    --button-hover-bg: #383838;
-    --code-bg: #2a2a2a;
-    --error-bg: #3a1f1c;
-    --error-fg: #ff8a80;
-    color-scheme: dark;
-  }
-  :global(:root[data-theme="dracula"]) {
-    --bg: #2d2f3f;
-    --fg: #f8f8f2;
-    --muted-fg: #b0b6d9;
-    --toolbar-fg: #bd93f9;
-    --border: #44475a;
-    --toolbar-bg: #282a36;
-    --button-bg: #383a4d;
-    --button-hover-bg: #44475a;
-    --code-bg: #21222c;
-    --error-bg: #4b1f1f;
-    --error-fg: #ff6e6e;
-    color-scheme: dark;
-  }
-  :global(:root[data-theme="solarized"]) {
-    --bg: #fef7e5;
-    --fg: #586e75;
-    --muted-fg: #93a1a1;
-    --toolbar-fg: #268bd2;
-    --border: #d9d2c0;
-    --toolbar-bg: #eee8d5;
-    --button-bg: #eee8d5;
-    --button-hover-bg: #e3dcc6;
-    --code-bg: #eee8d5;
-    --error-bg: #f7e6df;
-    --error-fg: #dc322f;
-    color-scheme: light;
-  }
   :global(html, body) {
     margin: 0;
     height: 100%;
-    font-family: system-ui, sans-serif;
-    background: var(--bg);
-    color: var(--fg);
+    font-family: var(--leef-font-ui);
+    background: var(--leef-bg-content);
+    color: var(--leef-text);
   }
   main {
     display: flex;
@@ -482,7 +425,7 @@ console.log("hello gmd");
   .pane {
     flex: 1;
     min-width: 0;
-    border-right: 1px solid var(--border);
+    border-right: 1px solid var(--leef-separator);
   }
   .pane:last-child {
     border-right: none;
@@ -492,7 +435,7 @@ console.log("hello gmd");
   @media print {
     :global(html, body) {
       height: auto;
-      background: #fff;
+      background: none;
     }
     main {
       display: block;
@@ -516,8 +459,8 @@ console.log("hello gmd");
   .error {
     margin: 0;
     padding: 0.4rem 0.75rem;
-    background: var(--error-bg);
-    color: var(--error-fg);
+    background: var(--leef-danger-bg);
+    color: var(--leef-danger);
     font-size: 0.85rem;
   }
   .focus-exit {
@@ -527,15 +470,15 @@ console.log("hello gmd");
     z-index: 20;
     width: 1.8rem;
     height: 1.8rem;
-    border: 1px solid var(--border);
+    border: 1px solid var(--leef-separator);
     border-radius: 50%;
-    background: var(--button-bg);
-    color: var(--toolbar-fg);
+    background: var(--leef-bg-control);
+    color: var(--leef-accent);
     cursor: pointer;
     opacity: 0.5;
   }
   .focus-exit:hover {
     opacity: 1;
-    background: var(--button-hover-bg);
+    background: var(--leef-bg-hover);
   }
 </style>
