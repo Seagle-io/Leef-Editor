@@ -59,11 +59,16 @@ export function compileQuery(q: string, o: SearchOptions): Result<RegExp, { code
   }
 }
 
+/** Steps past an empty match by one code point: landing inside a surrogate pair sends a /u regex back to the pair start, forever. */
+function skipEmpty(re: RegExp, text: string): void {
+  re.lastIndex += (text.codePointAt(re.lastIndex) ?? 0) > 0xffff ? 2 : 1;
+}
+
 function matches(re: RegExp, text: string): boolean {
   re.lastIndex = 0;
   for (let m = re.exec(text); m; m = re.exec(text)) {
     if (m[0].length > 0) return true;
-    re.lastIndex += 1;
+    skipEmpty(re, text);
   }
   return false;
 }
@@ -76,19 +81,20 @@ function preview(line: string, column: number): { preview: string; previewStart:
   return { preview: line.slice(start, start + PREVIEW_MAX), previewStart: start };
 }
 
-/** Scans one note; `room` caps the hits kept (global budget). */
-function scan(note: SearchableNote, re: RegExp, room: number): FileResult | null {
+/** Scans one note; `room` caps the hits kept (global budget); truncated = a hit beyond the cap exists. */
+function scan(note: SearchableNote, re: RegExp, room: number): FileResult {
   const cap = Math.min(HITS_PER_FILE, room);
   const hits: SearchHit[] = [];
   let truncated = false;
-  const lines = note.content.split("\n");
+  // Same line breaks as CodeMirror 6: \r\n, \r and \n.
+  const lines = note.content.split(/\r\n?|\n/);
 
   scanning: for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].endsWith("\r") ? lines[i].slice(0, -1) : lines[i];
+    const line = lines[i];
     re.lastIndex = 0;
     for (let m = re.exec(line); m; m = re.exec(line)) {
       if (m[0].length === 0) {
-        re.lastIndex += 1;
+        skipEmpty(re, line);
         continue;
       }
       if (hits.length >= cap) {
@@ -101,7 +107,7 @@ function scan(note: SearchableNote, re: RegExp, room: number): FileResult | null
 
   const name = note.rel.slice(note.rel.lastIndexOf("/") + 1);
   const titleMatch = matches(re, name) || note.headings.some((h) => matches(re, h));
-  return hits.length > 0 || titleMatch ? { path: note.path, rel: note.rel, titleMatch, hits, truncated } : null;
+  return { path: note.path, rel: note.rel, titleMatch, hits, truncated };
 }
 
 export async function searchNotes(
@@ -123,18 +129,18 @@ export async function searchNotes(
       aborted = true;
       break;
     }
-    if (hits >= HITS_TOTAL) {
-      truncated = true;
-      break;
-    }
     const note = ordered[i];
     if (note.content.length <= MAX_CONTENT && !note.content.includes("\0")) {
+      // Once the budget is spent, room 0: notes are still scanned until one proves there are more than HITS_TOTAL hits.
       const result = scan(note, re, HITS_TOTAL - hits);
-      if (result) {
+      if (result.hits.length > 0 || result.titleMatch) {
         batch.push(result);
         files += 1;
         hits += result.hits.length;
-        if (result.truncated && hits >= HITS_TOTAL) truncated = true;
+      }
+      if (result.truncated && hits >= HITS_TOTAL) {
+        truncated = true;
+        break;
       }
     }
     if ((i + 1) % BATCH === 0) {
@@ -146,4 +152,46 @@ export async function searchNotes(
   if (batch.length > 0) onBatch(batch);
 
   return { files, hits, truncated, aborted, ms: performance.now() - started };
+}
+
+export interface SearchOutcome {
+  results: FileResult[];
+  summary: SearchSummary;
+}
+
+/** What search.worker.ts receives; a RegExp survives structured clone (source and flags). */
+export interface WorkerRequest {
+  re: RegExp;
+  notes: readonly SearchableNote[];
+}
+
+export const INTERRUPTED = "Recherche interrompue : expression trop coûteuse";
+const WORKER_TIMEOUT = 5000;
+
+/**
+ * The interface's search: searchNotes in a Web Worker, terminated on abort or after timeoutMs.
+ * A catastrophic regex blocks inside exec, out of reach of any signal: only killing its thread frees the page.
+ */
+export function searchInWorker(
+  query: RegExp,
+  files: readonly SearchableNote[],
+  signal: AbortSignal,
+  { timeoutMs = WORKER_TIMEOUT }: { timeoutMs?: number } = {},
+): Promise<SearchOutcome> {
+  if (signal.aborted) return Promise.reject(new Error(INTERRUPTED));
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(new URL("./search.worker.ts", import.meta.url), { type: "module" });
+    const interrupt = () => settle(() => reject(new Error(INTERRUPTED)));
+    const timer = setTimeout(interrupt, timeoutMs);
+    function settle(done: () => void): void {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", interrupt);
+      worker.terminate();
+      done();
+    }
+    signal.addEventListener("abort", interrupt, { once: true });
+    worker.onmessage = (e: MessageEvent<SearchOutcome>) => settle(() => resolve(e.data));
+    worker.onerror = (e: ErrorEvent) => settle(() => reject(new Error(`Recherche impossible : ${e.message}`)));
+    worker.postMessage({ re: query, notes: files } satisfies WorkerRequest);
+  });
 }

@@ -36,6 +36,7 @@ export function themeVariables(t: Theme, scheme: Scheme, bgContent: string): Rec
     vars["--leef-accent"] = accent.accent;
     vars["--leef-accent-fill"] = accent.fill;
     vars["--leef-text-selection"] = accent.selection;
+    vars["--leef-text-on-accent"] = accent.onAccent;
   }
   for (const [token, value] of Object.entries(colors)) {
     if (value !== undefined) vars[`--leef-${token}`] = value;

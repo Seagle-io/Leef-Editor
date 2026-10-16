@@ -14,6 +14,7 @@ async function freshStore(): Promise<Store> {
 }
 
 beforeEach(() => {
+  vi.restoreAllMocks();
   localStorage.clear();
   document.documentElement.removeAttribute("style");
   document.documentElement.removeAttribute("data-theme");
@@ -23,6 +24,13 @@ beforeEach(() => {
 });
 
 const dracula = BUILTIN_THEMES.find((t) => t.id === "leef-dracula") as Theme;
+const wrapTheme = (theme: unknown): string => JSON.stringify({ format: "leef-theme", version: 1, theme });
+const cachedNames = (): string[] => (JSON.parse(localStorage.getItem("leef-themes-v1") ?? "").themes as Theme[]).map((t) => t.name);
+const failStorage = (method: "getItem" | "setItem", name: string): void => {
+  vi.spyOn(Storage.prototype, method).mockImplementation(() => {
+    throw new DOMException(name, name);
+  });
+};
 
 describe("migration gmd-*", () => {
   it.each([["light"], ["dark"], ["dracula"], ["solarized"]])("gmd-theme %s → leef-%s, clés supprimées", async (id) => {
@@ -140,6 +148,71 @@ describe("store", () => {
   });
 });
 
+describe("stockage local", () => {
+  it("D3 indisponible (getItem lève SecurityError) → import sans exception, défauts + error, thèmes utilisables en mémoire", async () => {
+    failStorage("getItem", "SecurityError");
+    const store = await freshStore();
+    expect(get(store.themeState)).toMatchObject({ activeId: "leef-auto", error: expect.stringMatching(/indisponible/) });
+    expect(store.selectTheme("leef-dark")).toEqual({ ok: true, value: undefined });
+    const id = store.duplicateTheme("leef-dark");
+    expect(store.renameTheme(id, "Nuit 🌙")).toEqual({ ok: true, value: undefined });
+    expect(get(store.activeTheme).id).toBe("leef-dark");
+    expect(get(store.themeState).themes.map((t) => t.name)).toContain("Nuit 🌙");
+  });
+
+  it("D4 plein (setItem lève QuotaExceededError) → Result io, mémoire et cache inchangés (import, rename, delete, select, edit, duplicate)", async () => {
+    const store = await freshStore();
+    const id = store.duplicateTheme("leef-dark");
+    const memory = get(store.themeState);
+    const cache = localStorage.getItem("leef-themes-v1");
+    const size = document.documentElement.style.getPropertyValue("--leef-content-size");
+    failStorage("setItem", "QuotaExceededError");
+    const io = { ok: false, error: { code: "io", message: expect.stringMatching(/QuotaExceededError/) } };
+    expect(store.importTheme(wrapTheme({ name: "Fantôme" }))).toMatchObject(io);
+    expect(store.renameTheme(id, "Autre")).toMatchObject(io);
+    expect(store.deleteTheme(id)).toMatchObject(io);
+    expect(store.selectTheme(id)).toMatchObject(io);
+    expect(() => store.editTheme(id, { size: 20 })).toThrow(/QuotaExceededError/);
+    expect(() => store.duplicateTheme(id)).toThrow(/QuotaExceededError/);
+    expect(get(store.themeState)).toEqual(memory);
+    expect(localStorage.getItem("leef-themes-v1")).toBe(cache);
+    expect(document.documentElement.style.getPropertyValue("--leef-content-size")).toBe(size);
+  });
+
+  it("D4 plein dès la migration gmd-* → import sans exception, error posé, gmd-* gardées pour la prochaine fois", async () => {
+    localStorage.setItem("gmd-theme", "dark");
+    localStorage.setItem("gmd-font", "georgia");
+    failStorage("setItem", "QuotaExceededError");
+    const state = get((await freshStore()).themeState);
+    expect(state).toMatchObject({ activeId: "leef-auto", error: expect.stringMatching(/QuotaExceededError/) });
+    expect(localStorage.getItem("gmd-theme")).toBe("dark");
+  });
+
+  it("D5 2 onglets : événement storage → B voit l'import de A ; sans événement → fusion avant écriture ; cache = A + B", async () => {
+    const a = await freshStore();
+    const b = await freshStore();
+    a.importTheme(wrapTheme({ name: "De A" }));
+    window.dispatchEvent(new StorageEvent("storage", { key: "leef-themes-v1" }));
+    expect(get(b.themeState).themes.map((t) => t.name)).toContain("De A");
+    a.importTheme(wrapTheme({ name: "De A" }));
+    expect(b.importTheme(wrapTheme({ name: "De B" })).ok).toBe(true);
+    expect(cachedNames()).toEqual(["De A", "De A 2", "De B"]);
+    expect(get(b.themeState).themes.map((t) => t.name)).toEqual([...BUILTIN_THEMES.map((t) => t.name), "De A", "De A 2", "De B"]);
+  });
+
+  it("D5 hostile : cache illisible écrit par un autre onglet (vide, tronqué, null, 1 Mo) → ignoré, écriture suivante le remplace", async () => {
+    const b = await freshStore();
+    b.importTheme(wrapTheme({ name: "De B" }));
+    for (const bad of ["", "{", "null", "x".repeat(1024 * 1024)]) {
+      localStorage.setItem("leef-themes-v1", bad);
+      window.dispatchEvent(new StorageEvent("storage", { key: "leef-themes-v1" }));
+      expect(get(b.themeState).themes.map((t) => t.name)).toContain("De B");
+    }
+    expect(b.importTheme(wrapTheme({ name: "Encore" })).ok).toBe(true);
+    expect(cachedNames()).toEqual(["De B", "Encore"]);
+  });
+});
+
 describe("import JSON invalide → erreur par champ", () => {
   const wrap = (theme: unknown): string => JSON.stringify({ format: "leef-theme", version: 1, theme });
   const cases: [string, unknown, string][] = [
@@ -215,6 +288,19 @@ describe("parseTheme — entrées hostiles", () => {
     expect(Object.keys(big).length).toBeGreaterThan(5000);
   });
 
+  it("HP ThemeFile : id dupliqué → themes[i].id ; nom dupliqué casse ignorée (emoji, accents) → themes[i].name", () => {
+    const file = (themes: unknown[]): string => JSON.stringify({ version: 1, active: "leef-auto", themes });
+    expect(parseThemeFile(file([{ id: "user-00000000", name: "A" }, { id: "user-00000000", name: "B" }]))).toMatchObject({
+      ok: false, error: { code: "invalid-field", field: "themes[1].id" },
+    });
+    for (const [a, b] of [["Clair", " clair "], ["Été", "ÉTÉ"], ["Nuit 🌙", "NUIT 🌙"]]) {
+      expect(parseThemeFile(file([{ id: "user-00000001", name: a }, { id: "user-00000002", name: b }]))).toMatchObject({
+        ok: false, error: { code: "invalid-field", field: "themes[1].name" },
+      });
+    }
+    expect(parseThemeFile(file([{ id: "user-00000001", name: "Clair" }, { id: "user-00000002", name: "Clair 2" }])).ok).toBe(true);
+  });
+
   it("couleurs en majuscules normalisées en minuscules", () => {
     expect(parseTheme({ accent: "#ABCDEF", overrides: { light: { text: "#AABBCC" } } })).toMatchObject({
       ok: true, value: { accent: "#abcdef", overrides: { light: { text: "#aabbcc" } } },
@@ -247,11 +333,22 @@ describe("couleurs", () => {
     expect(v.selection).toBe(mixHex(hex, bg, 0.75));
   });
 
-  it("valeur limite : noir sur fond sombre inatteignable en 10 pas → meilleur effort, borné à 50 % vers le texte", () => {
-    const v = accentVars("#000000", "dark", "#1c1c1e");
-    expect(v.accent).toBe(mixHex("#000000", "#f5f5f7", 0.5));
-    expect(contrastRatio(v.accent, "#1c1c1e")).toBeGreaterThan(contrastRatio("#000000", "#1c1c1e"));
+  it.each([
+    ["#000000", "dark", "#1c1c1e"], ["#ffffff", "light", "#ffffff"], ["#ffff00", "light", "#ffffff"], ["#000080", "dark", "#1c1c1e"],
+    ["#1c1c1e", "dark", "#1c1c1e"], ["#1d1d1f", "light", "#1d1d1f"], ["#f5f5f7", "dark", "#f5f5f7"], ["#808080", "light", "#777777"],
+  ] as const)("D6 accent extrême %s sur %s %s → texte accent ≥ 4.5 sans plafond de pas, fond surchargé compris", (hex, scheme, bg) => {
+    expect(contrastRatio(accentVars(hex, scheme, bg).accent, bg)).toBeGreaterThanOrEqual(4.5);
   });
+
+  it.each([["#ffffff"], ["#ffff00"], ["#000000"], ["#000080"], ["#777777"], ["#767676"], ["#bd93f9"], ["#0066d6"]])(
+    "D6 texte sur accent plein %s = blanc ou noir, le meilleur, ≥ 4.5",
+    (hex) => {
+      const { fill, onAccent } = accentVars(hex, "light", "#ffffff");
+      expect(["#ffffff", "#000000"]).toContain(onAccent);
+      expect(contrastRatio(onAccent, fill)).toBeGreaterThanOrEqual(Math.max(contrastRatio("#ffffff", fill), contrastRatio("#000000", fill)));
+      expect(contrastRatio(onAccent, fill)).toBeGreaterThanOrEqual(4.5);
+    },
+  );
 
   it("accent déjà lisible → inchangé", () => {
     expect(accentVars("#0066d6", "light", "#ffffff").accent).toBe("#0066d6");
@@ -262,6 +359,9 @@ describe("applyTheme / themeVariables", () => {
   it("accent personnalisé → 3 variables ; preset → aucune, data-accent posé par applyTheme", () => {
     const custom = themeVariables(dracula, "dark", "#1c1c1e");
     expect(custom["--leef-accent-fill"]).toBe("#bd93f9");
+    expect(custom["--leef-text-on-accent"]).toBe("#000000");
+    expect(themeVariables({ ...dracula, accent: "#ffffff" }, "light", "#ffffff")["--leef-text-on-accent"]).toBe("#000000");
+    expect(themeVariables({ ...dracula, accent: "#000080" }, "dark", "#1c1c1e")["--leef-text-on-accent"]).toBe("#ffffff");
     expect(custom["--leef-bg-content"]).toBe("#2d2f3f");
     expect(custom["--leef-font-content"]).toBe("var(--leef-font-ui)");
     expect(custom["--leef-measure"]).toBe("68ch");

@@ -20,6 +20,7 @@ const BLANK = /^[ \t\r]*$/;
 const HEADING = /^ {0,3}#{1,6}(?:[ \t]+([^\n]*))?$/;
 const HEADING_CLOSE = /(?:^|[ \t]+)#+[ \t]*$/;
 const TOKEN = /[`\\[]/g;
+const LINE_START = /^([ \t]*)(?:([-+*]|\d{1,9}[.)])([ \t]+|$))?/;
 
 export function noteKey(s: string): string {
   return s
@@ -37,7 +38,8 @@ export function parseWikiInner(inner: string): WikiTarget | null {
   const text = inner.trim();
   if (text === "") return null;
   const bar = text.indexOf("|");
-  const head = bar === -1 ? text : text.slice(0, bar);
+  // Dans un tableau GFM, le séparateur d'alias s'écrit "\|".
+  const head = bar === -1 ? text : text.slice(0, text[bar - 1] === "\\" ? bar - 1 : bar);
   const hash = head.indexOf("#");
   const target = (hash === -1 ? head : head.slice(0, hash)).trim().replace(NOTE_FILE, "");
   const heading = hash === -1 ? "" : head.slice(hash + 1).trim();
@@ -74,6 +76,12 @@ function* lines(content: string): Generator<Line> {
     yield { text, start, fenced };
     start = end + 1;
   }
+}
+
+/** Colonne atteinte après `s` depuis `col` (tabulation : multiple de 4 suivant). */
+function column(s: string, col = 0): number {
+  for (const ch of s) col = ch === "\t" ? col + 4 - (col % 4) : col + 1;
+  return col;
 }
 
 /** Liens d'un bloc de paragraphe hors fences : saute code inline et échappements. */
@@ -130,11 +138,26 @@ export function scanWikiRefs(content: string): WikiRef[] {
   const starts: number[] = [];
   const blocks: { from: number; to: number }[] = [];
   let block: { from: number; to: number } | null = null;
+  const items: number[] = []; // retrait du contenu des items de liste ouverts
   for (const line of lines(content)) {
     starts.push(line.start);
     if (line.fenced || BLANK.test(line.text)) {
       block = null;
-    } else if (block) {
+      continue;
+    }
+    const m = LINE_START.exec(line.text);
+    const lead = m?.[1] ?? "";
+    const indent = column(lead);
+    if (!block || m?.[2] !== undefined) while (items.length > 0 && indent < items[items.length - 1]) items.pop();
+    const base = items.length > 0 ? items[items.length - 1] : 0;
+    if (indent >= base + 4) {
+      if (!block) continue; // bloc de code indenté (§1.1) : ne coupe pas un paragraphe
+    } else if (m?.[2] !== undefined) {
+      const marker = column(lead + m[2]);
+      const gap = column(m[3], marker) - marker;
+      items.push(gap === 0 || gap > 4 ? marker + 1 : marker + gap);
+    }
+    if (block) {
       block.to = line.start + line.text.length;
     } else {
       block = { from: line.start, to: line.start + line.text.length };
@@ -174,5 +197,11 @@ export function wikiDisplay(t: WikiTarget): string {
 export function wikiFromEdited(raw: string, visible: string): string {
   const t = parseWikiInner(raw);
   if (visible === "" || t === null || visible === wikiDisplay(t)) return raw;
-  return `${t.target}${t.heading ? `#${t.heading}` : ""}|${visible}`;
+  const head = `${t.target}${t.heading ? `#${t.heading}` : ""}|`;
+  // L'inner refuse \n, [, ] et plus de INNER_MAX unités : texte visible assaini, sinon le lien serait perdu.
+  let alias = visible.replace(/\r?\n|\r/g, " ").replace(/[[\]]/g, "");
+  let end = Math.max(0, INNER_MAX - head.length);
+  if (alias.length > end && end > 0 && /[\ud800-\udbff]/.test(alias[end - 1])) end--;
+  alias = alias.slice(0, end);
+  return alias.trim() === "" ? raw : head + alias;
 }

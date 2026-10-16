@@ -135,9 +135,13 @@ export function parseThemeFile(json: string): Result<ThemeFile, ThemeError> {
     if (!isRecord(entry) || typeof entry.id !== "string" || !USER_ID.test(entry.id)) {
       return invalid(`themes[${i}].id`, `themes[${i}].id : « user-<8 hex> » attendu.`);
     }
+    const id = entry.id;
+    if (themes.some((t) => t.id === id)) return invalid(`themes[${i}].id`, `themes[${i}].id : ${id} déjà utilisé.`);
     const parsed = parseTheme(entry);
     if (!parsed.ok) return invalid(`themes[${i}].${parsed.error.field}`, `themes[${i}] : ${parsed.error.message}`);
-    themes.push({ ...parsed.value, id: entry.id, builtin: false });
+    const name = parsed.value.name.toLowerCase();
+    if (themes.some((t) => t.name.toLowerCase() === name)) return invalid(`themes[${i}].name`, `themes[${i}].name : « ${parsed.value.name} » déjà utilisé.`);
+    themes.push({ ...parsed.value, id, builtin: false });
   }
   return { ok: true, value: { version: 1, active: raw.active ?? AUTO_ID, themes } };
 }

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from "svelte";
   import { answerConfirm, cancelDialog, dialogRequest, submitPrompt, validatePrompt, type DialogRequest } from "./dialog";
 
   let dialogEl: HTMLDialogElement | undefined;
@@ -16,7 +17,7 @@
     if (request === shown) return;
     const previous = shown;
     shown = request;
-    if (previous && !request) restoreFocus();
+    if (previous && !request) void restoreFocus();
     if (!request) return;
     if (!previous) origin = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     value = request.kind === "prompt" ? (request.options.value ?? "") : "";
@@ -33,9 +34,12 @@
     } else okEl?.focus();
   }
 
-  function restoreFocus(): void {
+  /** Le <dialog> modal rend la page inerte : le fermer et attendre son retrait avant de rendre le focus. */
+  async function restoreFocus(): Promise<void> {
     const target = origin;
     origin = null;
+    dialogEl?.close();
+    await tick();
     if (target && target.isConnected) target.focus();
   }
 

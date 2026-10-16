@@ -322,7 +322,7 @@
   --muted-fg: var(--leef-text-secondary);
   --border: var(--leef-separator);
   --toolbar-bg: var(--leef-bg-toolbar);
-  --toolbar-fg: var(--leef-accent);
+  --toolbar-fg: var(--leef-text);
   --button-bg: var(--leef-bg-control);
   --button-hover-bg: var(--leef-bg-hover);
   --code-bg: var(--leef-bg-code);

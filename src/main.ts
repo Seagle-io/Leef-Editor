@@ -1,5 +1,3 @@
-performance.mark("leef:boot");
-
 import "./styles/tokens.css";
 import "./styles/content.css";
 import App from "./App.svelte";

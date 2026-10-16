@@ -69,6 +69,26 @@ describe("planRename", () => {
     expect(planRename(ix, "/w/a.md", "/w/sub/a.md", "sub/a.md")).toEqual({ files: [], total: 0 });
   });
 
+  it("rewrites links the new name would capture, so they keep their current target (T013 D4)", () => {
+    const ix = NoteIndex.build([f("d1/X.md", "[[A]] [[X]]"), f("d2/A.md"), f("d1/s.md", "[[A]] [[A#T|v]] [[X]]"), f("d2/s.md", "[[A]]")]);
+    expect(planRename(ix, "/w/d1/X.md", "/w/d1/A.md", "d1/A.md")).toEqual({
+      files: [
+        { path: "/w/d1/s.md", count: 3 },
+        { path: "/w/d1/X.md", count: 2 },
+      ],
+      total: 5,
+    });
+  });
+
+  it("does not count broken links the new name brings to life, nor links already elsewhere (T013 D4)", () => {
+    const ix = NoteIndex.build([f("d1/X.md"), f("d1/s.md", "[[A]] [[d2/A]]"), f("d2/A.md"), f("d2/s.md", "[[A]] [[B]]")]);
+    expect(planRename(ix, "/w/d1/X.md", "/w/d1/A.md", "d1/A.md").files).toEqual([{ path: "/w/d1/s.md", count: 1 }]);
+    const broken = NoteIndex.build([f("x.md"), f("s.md", "[[😀]] [[é]]")]);
+    expect(planRename(broken, "/w/x.md", "/w/😀.md", "😀.md").total).toBe(0);
+    const nfd = NoteIndex.build([f("d1/x.md"), f("d2/e\u0301te\u0301.md"), f("d1/s.md", "[[été]]")]);
+    expect(planRename(nfd, "/w/d1/x.md", "/w/d1/été.md", "d1/été.md").total).toBe(1);
+  });
+
   it("unknown source throws; unicode and punctuation names", () => {
     const ix = NoteIndex.build([f("é.md"), f("s.md", "[[é]] [[É]]")]);
     expect(() => planRename(ix, "/w/zz.md", "/w/y.md", "y.md")).toThrow("Note inconnue");

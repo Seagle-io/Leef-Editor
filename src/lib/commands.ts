@@ -50,11 +50,22 @@ const recent = writable<string[]>(loadRecent());
 export const recentCommands: Readable<string[]> = { subscribe: recent.subscribe };
 
 recent.subscribe((value) => {
-  localStorage.setItem(RECENT_KEY, JSON.stringify(value));
+  try {
+    localStorage.setItem(RECENT_KEY, JSON.stringify(value));
+  } catch {
+    // Storage full or blocked: recent commands stay in memory for this session.
+  }
 });
 
 export function getCommand(id: string): AppCommand | undefined {
   return get(list).find((command) => command.id === id);
+}
+
+/** The chord as matchShortcut reads it: Mod, Shift, Alt as a set, key case-insensitive. */
+function chord(keys: string): string {
+  const parts = keys.split("-");
+  const key = (parts.pop() ?? "").toLowerCase();
+  return [...["Mod", "Shift", "Alt"].filter((part) => parts.includes(part)), key].join("-");
 }
 
 export function registerCommands(added: AppCommand[]): () => void {
@@ -62,13 +73,13 @@ export function registerCommands(added: AppCommand[]): () => void {
   for (const command of added) {
     if (known.has(command.id)) throw new Error(`Commande en double : ${command.id}`);
     known.add(command.id);
-    const keys = command.shortcut?.keys.toLowerCase();
-    const owner = Object.keys(reservedShortcuts).find((id) => reservedShortcuts[id].toLowerCase() === keys);
+    const keys = command.shortcut === undefined ? undefined : chord(command.shortcut.keys);
+    const owner = Object.keys(reservedShortcuts).find((id) => chord(reservedShortcuts[id]) === keys);
     if (owner !== undefined && owner !== command.id) throw new Error(`Raccourci réservé : ${command.shortcut?.keys}`);
   }
   list.update((current) => [...current, ...added]);
-  const ids = new Set(added.map((command) => command.id));
-  return () => list.update((current) => current.filter((command) => !ids.has(command.id)));
+  const mine = new Set(added);
+  return () => list.update((current) => current.filter((command) => !mine.has(command)));
 }
 
 export async function runCommand(id: string): Promise<boolean> {
@@ -92,8 +103,9 @@ export function matchShortcut(e: KeyboardEvent, keys: string): boolean {
   if ((mac ? e.metaKey : e.ctrlKey) !== wantMod) return false;
   if ((mac ? e.ctrlKey : e.metaKey) !== false) return false;
   if (e.shiftKey !== parts.includes("Shift") || e.altKey !== parts.includes("Alt")) return false;
-  // Alt rewrites e.key on macOS ("ƒ" for Alt-f), so a single letter also matches on e.code.
-  return e.key.toLowerCase() === key.toLowerCase() || (key.length === 1 && e.code === `Key${key.toUpperCase()}`);
+  // Alt rewrites e.key on macOS ("ƒ" for Alt-f), so with Alt a single letter also matches on e.code;
+  // without Alt, e.code would match the physical QWERTY key (AZERTY Mod-z is code KeyW).
+  return e.key.toLowerCase() === key.toLowerCase() || (e.altKey && key.length === 1 && e.code === `Key${key.toUpperCase()}`);
 }
 
 export function handleGlobalKeydown(e: KeyboardEvent): boolean {

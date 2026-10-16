@@ -61,6 +61,29 @@ describe("registry", () => {
     expect(m.getCommand("palette.open")).toBeDefined();
   });
 
+  it("reserves chords, not strings: modifier order, case and repetition do not bypass D2 (T013 D8)", () => {
+    for (const keys of ["Shift-Mod-k", "Mod-Shift-K", "Alt-Mod-f", "Mod-Mod-k", "Mod-".repeat(50_000) + "k"]) {
+      expect(() => m.registerCommands([cmd("other", { shortcut: { keys, scope: "global" } })]), keys).toThrow("Raccourci réservé");
+    }
+    expect(m.getCommand("other")).toBeUndefined();
+    unregister = m.registerCommands([
+      cmd("insert.link", { shortcut: { keys: "Shift-Mod-k", scope: "global" } }),
+      cmd("x.empty", { shortcut: { keys: "", scope: "global" } }),
+      cmd("x.emoji", { shortcut: { keys: "Mod-😀", scope: "global" } }),
+      cmd("x.lone", { shortcut: { keys: "Mod-\uD800", scope: "global" } }),
+      cmd("x.rtl", { shortcut: { keys: "Mod-ש", scope: "global" } }),
+    ]);
+    expect(get(m.commands)).toHaveLength(5);
+  });
+
+  it("an old unregister called again does not remove a re-registered command (T013 D9)", () => {
+    const off = m.registerCommands([cmd("theme.select.x")]);
+    off();
+    unregister = m.registerCommands([cmd("theme.select.x", { title: "neuf" })]);
+    off();
+    expect(m.getCommand("theme.select.x")?.title).toBe("neuf");
+  });
+
   it("treats hostile ids as opaque: empty, huge, control chars, unicode, RTL", () => {
     const ids = ["", "x".repeat(100_000), "a\u0000b‮\n", "é́😀", "مرحبا"];
     unregister = m.registerCommands(ids.map((id) => cmd(id)));
@@ -103,6 +126,22 @@ describe("runCommand", () => {
     expect(new Set(recent).size).toBe(8);
     expect(JSON.parse(store.get("leef-recent-commands") ?? "[]")).toEqual(recent);
   });
+
+  it("survives a storage that refuses writes: import, run and in-memory recent (T013 D7)", async () => {
+    const setItem = vi.spyOn(localStorage, "setItem").mockImplementation(() => {
+      throw new DOMException("quota", "QuotaExceededError");
+    });
+    try {
+      vi.resetModules();
+      const fresh = await import("./commands");
+      unregister = fresh.registerCommands([cmd("a")]);
+      expect(await fresh.runCommand("a")).toBe(true);
+      expect(get(fresh.recentCommands)).toEqual(["a"]);
+      expect(setItem).toHaveBeenCalled();
+    } finally {
+      setItem.mockRestore();
+    }
+  });
 });
 
 describe("matchShortcut", () => {
@@ -128,6 +167,22 @@ describe("matchShortcut", () => {
   it("matches Alt-rewritten keys on e.code (Mac)", () => {
     platform("MacIntel");
     expect(m.matchShortcut(key({ key: "ƒ", code: "KeyF", metaKey: true, altKey: true }), "Mod-Alt-f")).toBe(true);
+  });
+
+  it("AZERTY: the e.code fallback needs Alt, so Mod-z / Mod-a never match Mod-w / Mod-q (T013 D2)", () => {
+    expect(m.matchShortcut(key({ key: "z", code: "KeyW", ctrlKey: true }), "Mod-w")).toBe(false);
+    expect(m.matchShortcut(key({ key: "a", code: "KeyQ", ctrlKey: true }), "Mod-q")).toBe(false);
+    expect(m.matchShortcut(key({ key: "z", code: "KeyW", ctrlKey: true }), "Mod-z")).toBe(true);
+    platform("MacIntel");
+    expect(m.matchShortcut(key({ key: "z", code: "KeyW", metaKey: true }), "Mod-w")).toBe(false);
+    expect(m.matchShortcut(key({ key: "ƒ", code: "KeyF", metaKey: true, altKey: true }), "Mod-Alt-f")).toBe(true);
+  });
+
+  it("AZERTY Ctrl+Z does not run the Mod-w global command (T013 D2)", () => {
+    const close = vi.fn();
+    unregister = m.registerCommands([cmd("file.close", { shortcut: { keys: "Mod-w", scope: "global" }, run: close })]);
+    expect(m.handleGlobalKeydown(key({ key: "z", code: "KeyW", ctrlKey: true }))).toBe(false);
+    expect(close).not.toHaveBeenCalled();
   });
 
   it("rejects empty, malformed and hostile keys", () => {

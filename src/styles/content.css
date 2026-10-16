@@ -111,7 +111,6 @@
 .leef-content .copy-code-btn svg {
   width: var(--leef-icon-sm);
   height: var(--leef-icon-sm);
-  fill: currentColor;
 }
 .leef-content .code-block:hover .copy-code-btn,
 .leef-content .copy-code-btn:focus-visible {

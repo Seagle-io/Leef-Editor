@@ -72,9 +72,12 @@ export function createFsaFs(dir: FileSystemDirectoryHandle): FolderFs {
     try {
       // Copy: the signature wants an ArrayBuffer-backed view, not a possibly shared one.
       await writable.write(typeof data === "string" ? data : new Uint8Array(data));
-    } finally {
-      await writable.close();
+    } catch (e) {
+      // A stream in error rejects close() too: its error would hide the cause (disk full → "io").
+      await writable.close().catch(() => undefined);
+      throw e;
     }
+    await writable.close();
   }
 
   async function existsAt(path: string): Promise<boolean> {
@@ -121,7 +124,16 @@ export function createFsaFs(dir: FileSystemDirectoryHandle): FolderFs {
       if (await existsAt(to)) throw new FolderFsError("exists", to, `Le fichier existe déjà : ${to}`);
       await run(from, async () => {
         const bytes = new Uint8Array(await (await (await fileOf(from, false)).getFile()).arrayBuffer());
-        await write(to, bytes);
+        await fileOf(to, true);
+        try {
+          await write(to, bytes);
+        } catch (e) {
+          // `to` did not exist: remove the file just created, or a retry would say "exists".
+          const target = relOf(to);
+          await (await parentOf(target, false)).removeEntry(target[target.length - 1]);
+          files.delete(target.join("/"));
+          throw e;
+        }
         const segments = relOf(from);
         await (await parentOf(segments, false)).removeEntry(segments[segments.length - 1]);
         files.delete(segments.join("/"));

@@ -30,7 +30,7 @@ export const font = writable<FontId>(initialFont());
 
 font.subscribe((value) => {
   const stack = fonts.find((f) => f.id === value)?.stack ?? fonts[0].stack;
-  document.documentElement.style.setProperty("--content-font", stack);
+  document.documentElement.style.setProperty("--leef-font-content", stack);
   localStorage.setItem(STORAGE_KEY, value);
 });
 

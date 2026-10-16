@@ -7,7 +7,6 @@ type Rgb = [number, number, number];
 /** Couleur du texte T002 par schéma : cible de l'ajustement de l'accent. */
 const TEXT: Record<Scheme, string> = { light: "#1d1d1f", dark: "#f5f5f7" };
 const MIN_CONTRAST = 4.5;
-const MAX_STEPS = 10;
 const STEP = 0.05;
 
 function parseHex(hex: string): Rgb {
@@ -39,10 +38,17 @@ export function contrastRatio(a: string, b: string): number {
   return (hi + 0.05) / (lo + 0.05);
 }
 
-export function accentVars(hex: string, scheme: Scheme, bg: string): { accent: string; fill: string; selection: string } {
+/** Blanc ou noir, le meilleur rapport sur `bg` : toujours ≥ 4.58 (√21). */
+function blackOrWhite(bg: string): string {
+  return contrastRatio("#ffffff", bg) >= contrastRatio("#000000", bg) ? "#ffffff" : "#000000";
+}
+
+export function accentVars(hex: string, scheme: Scheme, bg: string): { accent: string; fill: string; selection: string; onAccent: string } {
+  // Fond surchargé trop proche du texte : la cible devient blanc ou noir, donc t = 1 atteint toujours 4.5.
+  const target = contrastRatio(TEXT[scheme], bg) >= MIN_CONTRAST ? TEXT[scheme] : blackOrWhite(bg);
   let accent = hex;
-  for (let step = 1; step <= MAX_STEPS && contrastRatio(accent, bg) < MIN_CONTRAST; step++) {
-    accent = mixHex(hex, TEXT[scheme], STEP * step);
+  for (let step = 1; contrastRatio(accent, bg) < MIN_CONTRAST; step++) {
+    accent = mixHex(hex, target, Math.min(1, STEP * step));
   }
-  return { accent, fill: hex, selection: mixHex(hex, bg, 0.75) };
+  return { accent, fill: hex, selection: mixHex(hex, bg, 0.75), onAccent: blackOrWhite(hex) };
 }

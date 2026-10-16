@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { compileQuery, searchNotes, type FileResult, type SearchableNote, type SearchOptions } from "./search";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { compileQuery, INTERRUPTED, searchInWorker, searchNotes, type FileResult, type SearchableNote, type SearchOptions, type WorkerRequest } from "./search";
 
 const plain: SearchOptions = { caseSensitive: false, wholeWord: false, regex: false };
 
@@ -99,10 +99,28 @@ describe("searchNotes", () => {
     expect(results).toEqual([]);
   });
 
+  it("ignores empty matches next to astral characters (emoji) without looping", async () => {
+    const { results } = await run([note("a.md", "😀 bonjour\nnote 🍃 leef\ne\u0301te\u0301 שלום 𝒳")], /x*/gu);
+    expect(results).toEqual([]);
+    const alt = await run([note("a.md", "note 🍃 leef")], re("x|", { regex: true }));
+    expect(alt.results).toEqual([]);
+  });
+
+  it("titleMatch ignores empty matches in an emoji name or heading without looping", async () => {
+    const { results } = await run([note("😀.md", "rien", ["🍃 titre"])], /x*/gu);
+    expect(results).toEqual([]);
+  });
+
   it("empty file and CRLF lines", async () => {
     const { results } = await run([note("e.md", ""), note("c.md", "ab foo\r\nfoo\r\n")], re("foo"));
     expect(results).toHaveLength(1);
     expect(results[0].hits.map((h) => h.preview)).toEqual(["ab foo", "foo"]);
+  });
+
+  it("lone CR and mixed line endings split lines like CodeMirror", async () => {
+    const { results } = await run([note("a.md", "un\rdeux\rcible"), note("b.md", "a\r\nb\rc\n\r\ncible")], re("cible"));
+    expect(results.map((r) => r.hits[0].line)).toEqual([3, 5]);
+    expect(results[0].hits[0]).toMatchObject({ column: 1, preview: "cible" });
   });
 
   it("truncates previews at 200 around the match", async () => {
@@ -133,6 +151,25 @@ describe("searchNotes", () => {
     const { summary } = await run(notes, re("foo"));
     expect(summary.hits).toBe(2000);
     expect(summary.truncated).toBe(true);
+  });
+
+  it("exactly 2000 hits is not truncated, even with more files after (title-only ones still listed)", async () => {
+    const notes = Array.from({ length: 20 }, (_, i) => note(`n${String(i).padStart(2, "0")}.md`, "foo\n".repeat(100)));
+    const { results, summary } = await run([...notes, note("x.md", "rien"), note("y-foo.md", "rien")], re("foo"));
+    expect(summary).toMatchObject({ hits: 2000, truncated: false });
+    expect(results.at(-1)).toMatchObject({ rel: "y-foo.md", titleMatch: true, hits: [] });
+  });
+
+  it("2000 hits then one more → truncated", async () => {
+    const notes = Array.from({ length: 20 }, (_, i) => note(`n${String(i).padStart(2, "0")}.md`, "foo\n".repeat(100)));
+    const { summary } = await run([...notes, note("x.md", "rien"), note("z.md", "foo")], re("foo"));
+    expect(summary).toMatchObject({ hits: 2000, truncated: true });
+  });
+
+  it("exactly 100 hits in a file is not truncated", async () => {
+    const { results } = await run([note("a.md", "foo\n".repeat(100))], re("foo"));
+    expect(results[0]).toMatchObject({ truncated: false });
+    expect(results[0].hits).toHaveLength(100);
   });
 
   it("skips binary (NUL) and huge files", async () => {
@@ -183,5 +220,104 @@ describe("searchNotes", () => {
   it("no notes → empty summary", async () => {
     const { summary } = await run([], re("foo"));
     expect(summary).toMatchObject({ files: 0, hits: 0, truncated: false, aborted: false });
+  });
+});
+
+// Node has no Web Worker: a stand-in that answers with the real engine, stays silent (catastrophic regex) or fails.
+class FakeWorker {
+  static mode: "answer" | "silent" | "error" = "answer";
+  static made: FakeWorker[] = [];
+  onmessage: ((e: MessageEvent) => void) | null = null;
+  onerror: ((e: ErrorEvent) => void) | null = null;
+  terminated = 0;
+  constructor(readonly url: URL, readonly options: WorkerOptions) {
+    FakeWorker.made.push(this);
+  }
+  postMessage(req: WorkerRequest) {
+    if (FakeWorker.mode === "silent") return;
+    if (FakeWorker.mode === "error") {
+      setTimeout(() => this.onerror?.({ message: "boom" } as ErrorEvent), 0);
+      return;
+    }
+    const results: FileResult[] = [];
+    void searchNotes(req.notes, req.re, (b) => results.push(...b), new AbortController().signal).then((summary) =>
+      this.onmessage?.({ data: { results, summary } } as MessageEvent),
+    );
+  }
+  terminate() {
+    this.terminated += 1;
+  }
+}
+
+describe("searchInWorker", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    FakeWorker.mode = "answer";
+    FakeWorker.made = [];
+  });
+
+  it("runs the engine in a module worker and terminates it once done", async () => {
+    vi.stubGlobal("Worker", FakeWorker);
+    const { results, summary } = await searchInWorker(re("foo"), [note("b.md", "foo"), note("a.md", "x\nfoo")], new AbortController().signal);
+    expect(results.map((r) => [r.rel, r.hits[0].line])).toEqual([["a.md", 2], ["b.md", 1]]);
+    expect(summary).toMatchObject({ files: 2, hits: 2, aborted: false });
+    expect(FakeWorker.made).toHaveLength(1);
+    expect(FakeWorker.made[0].url.pathname.endsWith("/search.worker.ts")).toBe(true);
+    expect(FakeWorker.made[0].options).toEqual({ type: "module" });
+    expect(FakeWorker.made[0].terminated).toBe(1);
+  });
+
+  it("abort before start rejects at once, no worker", async () => {
+    vi.stubGlobal("Worker", FakeWorker);
+    const controller = new AbortController();
+    controller.abort();
+    await expect(searchInWorker(re("foo"), [note("a.md", "foo")], controller.signal)).rejects.toThrow(INTERRUPTED);
+    expect(FakeWorker.made).toHaveLength(0);
+  });
+
+  it("abort while the worker is stuck terminates it; a second abort changes nothing", async () => {
+    vi.stubGlobal("Worker", FakeWorker);
+    FakeWorker.mode = "silent";
+    const controller = new AbortController();
+    const pending = searchInWorker(re("(a+)+$", { regex: true }), [note("a.md", "a".repeat(29) + "b")], controller.signal);
+    setTimeout(() => {
+      controller.abort();
+      controller.abort();
+    }, 10);
+    await expect(pending).rejects.toThrow(INTERRUPTED);
+    expect(FakeWorker.made[0].terminated).toBe(1);
+  });
+
+  it("times out (default 5 s, here 20 ms) and terminates the worker", async () => {
+    vi.stubGlobal("Worker", FakeWorker);
+    FakeWorker.mode = "silent";
+    const started = performance.now();
+    await expect(searchInWorker(re("foo"), [note("a.md", "foo")], new AbortController().signal, { timeoutMs: 20 })).rejects.toThrow(INTERRUPTED);
+    expect(performance.now() - started).toBeLessThan(500);
+    expect(FakeWorker.made[0].terminated).toBe(1);
+  });
+
+  it("a late abort after the answer neither rejects nor terminates twice", async () => {
+    vi.stubGlobal("Worker", FakeWorker);
+    const controller = new AbortController();
+    await searchInWorker(re("foo"), [note("a.md", "foo")], controller.signal, { timeoutMs: 20 });
+    controller.abort();
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(FakeWorker.made[0].terminated).toBe(1);
+  });
+
+  it("a worker error rejects with a readable message", async () => {
+    vi.stubGlobal("Worker", FakeWorker);
+    FakeWorker.mode = "error";
+    await expect(searchInWorker(re("foo"), [note("a.md", "foo")], new AbortController().signal)).rejects.toThrow("Recherche impossible : boom");
+    expect(FakeWorker.made[0].terminated).toBe(1);
+  });
+
+  it("10 000 files and a 10 MB file go through the worker (huge one skipped)", async () => {
+    vi.stubGlobal("Worker", FakeWorker);
+    const notes = Array.from({ length: 10_000 }, (_, i) => note(`n${String(i).padStart(5, "0")}.md`, i % 100 === 0 ? "foo" : "bar"));
+    notes.push(note("huge.md", "foo ".repeat(2_500_000)));
+    const { summary } = await searchInWorker(re("foo"), notes, new AbortController().signal);
+    expect(summary).toMatchObject({ files: 100, hits: 100, truncated: false, aborted: false });
   });
 });

@@ -5,18 +5,26 @@ import { FolderFsError } from "./types";
 // Minimal in-memory File System Access: just what fsaFs calls.
 class FakeFile {
   readonly kind = "file";
-  constructor(readonly name: string, public data: Uint8Array = new Uint8Array()) {}
+  constructor(readonly name: string, public data: Uint8Array = new Uint8Array(), readonly failWrite = false) {}
   async getFile() {
     const data = this.data;
     return { arrayBuffer: async () => data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength), text: async () => new TextDecoder().decode(data) };
   }
   async createWritable() {
     const file = this;
+    let errored = false;
     return {
       async write(chunk: string | Uint8Array) {
+        if (file.failWrite) {
+          errored = true;
+          throw new DOMException("disque plein", "QuotaExceededError");
+        }
         file.data = typeof chunk === "string" ? new TextEncoder().encode(chunk) : new Uint8Array(chunk);
       },
-      async close() {},
+      // Like Chrome: a stream in error rejects close() as well.
+      async close() {
+        if (errored) throw new TypeError("Cannot close a ERRORED writable stream");
+      },
     };
   }
 }
@@ -25,6 +33,8 @@ class FakeDir {
   readonly kind = "directory";
   readonly children = new Map<string, FakeDir | FakeFile>();
   denyWrite = false;
+  /** New files are created, then fail on write (disk full). */
+  failNewWrites = false;
   constructor(readonly name: string) {}
   async *entries() {
     yield* this.children.entries();
@@ -40,7 +50,7 @@ class FakeDir {
     let c = this.children.get(name);
     if (!c && o?.create) {
       if (this.denyWrite) throw new DOMException("x", "NotAllowedError");
-      this.children.set(name, (c = new FakeFile(name)));
+      this.children.set(name, (c = new FakeFile(name, new Uint8Array(), this.failNewWrites)));
     }
     if (!c) throw new DOMException("x", "NotFoundError");
     if (c.kind !== "file") throw new DOMException("x", "TypeMismatchError");
@@ -135,6 +145,24 @@ describe("createFsaFs", () => {
     expect(await code(fs.rename("fsa://notes/zz.md", "fsa://notes/y.md"))).toBe("not-found");
   });
 
+  it("rename whose write fails leaves no destination behind, source intact, retry possible", async () => {
+    const { fs, root } = setup();
+    const sub = root.children.get("sub") as FakeDir;
+    sub.failNewWrites = true;
+    expect(await code(fs.rename("fsa://notes/b.md", "fsa://notes/sub/b2.md"))).toBe("io");
+    expect(await fs.exists("fsa://notes/sub/b2.md")).toBe(false);
+    expect(await fs.readText("fsa://notes/b.md")).toBe("bé😀");
+    sub.failNewWrites = false;
+    await fs.rename("fsa://notes/b.md", "fsa://notes/sub/b2.md");
+    expect(await fs.readText("fsa://notes/sub/b2.md")).toBe("bé😀");
+  });
+
+  it("rename refused at creation keeps the permission error", async () => {
+    const { fs, root } = setup();
+    (root.children.get("sub") as FakeDir).denyWrite = true;
+    expect(await code(fs.rename("fsa://notes/b.md", "fsa://notes/sub/b2.md"))).toBe("permission");
+  });
+
   it("missing file → not-found", async () => {
     const { fs } = setup();
     expect(await code(fs.readText("fsa://notes/zz.md"))).toBe("not-found");
@@ -144,6 +172,12 @@ describe("createFsaFs", () => {
     const { fs, root } = setup();
     root.denyWrite = true;
     expect(await code(fs.writeText("fsa://notes/fresh.md", "x"))).toBe("permission");
+  });
+
+  it("write failure is reported, not hidden by the close() that follows", async () => {
+    const { fs, root } = setup();
+    root.children.set("full.md", new FakeFile("full.md", new Uint8Array(), true));
+    await expect(fs.writeText("fsa://notes/full.md", "x")).rejects.toThrow("disque plein");
   });
 
   it("paths outside the root, traversal, empty segments → outside-root", async () => {

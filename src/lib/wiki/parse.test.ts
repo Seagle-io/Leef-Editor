@@ -26,6 +26,15 @@ describe("parseWikiInner", () => {
     }
     expect(parseWikiInner("a".repeat(512))).not.toBeNull();
   });
+
+  it("reads the GFM table escape \\| as the alias separator (T013 D6)", () => {
+    expect(parseWikiInner("Note\\|alias")).toEqual({ raw: "Note\\|alias", target: "Note", heading: null, alias: "alias" });
+    expect(parseWikiInner("Note#H\\|x")).toMatchObject({ target: "Note", heading: "H", alias: "x" });
+    expect(parseWikiInner("\\|x")).toBeNull();
+    expect(parseWikiInner("a\\")).toMatchObject({ target: "a\\", alias: null });
+    const [r] = scanWikiRefs("| col |\n|---|\n| [[Note\\|alias]] |\n");
+    expect(r).toMatchObject({ target: "Note", alias: "alias" });
+  });
 });
 
 describe("scanWikiRefs", () => {
@@ -52,6 +61,22 @@ describe("scanWikiRefs", () => {
     expect(raws("```\n~~~\n[[a]]\n~~~\n```\n[[b]]")).toEqual(["b"]);
     expect(raws("```\n[[a]]")).toEqual([]);
     expect(raws("``` `x`\n[[a]]")).toEqual(["a"]);
+  });
+
+  it("ignores indented code blocks, tab included, but not paragraph or list continuations (T013 D5)", () => {
+    expect(raws("para\n\n    [[a]]\n")).toEqual([]);
+    expect(raws("para\n\n\t[[a]]\n")).toEqual([]);
+    expect(raws("  \t[[a]]")).toEqual([]);
+    expect(raws("    [[a]]\n\n    [[b]]\n[[c]]")).toEqual(["c"]);
+    expect(raws("para\n    [[a]]")).toEqual(["a"]);
+    expect(raws("- a\n\n    [[b]]")).toEqual(["b"]);
+    expect(raws("1. a\n\n\t[[b]]")).toEqual(["b"]);
+    expect(raws("- a\n\n      [[b]]")).toEqual([]);
+    expect(raws("- a\n  b\n\n    [[c]]")).toEqual(["c"]);
+    expect(raws("- a\n\nb\n\n    [[c]]")).toEqual([]);
+    expect(raws("para\n- a\n\n    [[b]]")).toEqual(["b"]);
+    expect(raws("- a\n  - b\n\n  c\n\n    [[x]]")).toEqual(["x"]);
+    expect(raws("    😀 [[a]]\n\n‏ [[ש]]")).toEqual(["ש"]);
   });
 
   it("ignores escapes and embeds", () => {
@@ -125,5 +150,19 @@ describe("wikiDisplay / wikiFromEdited", () => {
     expect(wikiFromEdited("a|old", "new")).toBe("a|new");
     expect(wikiFromEdited("a.md", "x")).toBe("a|x");
     expect(wikiFromEdited("[", "x")).toBe("[");
+  });
+
+  it("keeps a valid link whatever the edited visible text (T013 D13)", () => {
+    for (const visible of ["a]b", "[x]", "a\nb", "a\r\nb", "]]", "😀 שלום é", "\ud800", "x".repeat(100_000), "😀".repeat(300)]) {
+      const raw = wikiFromEdited("x#H", visible);
+      expect(parseWikiInner(raw), JSON.stringify(visible.slice(0, 20))).toMatchObject({ target: "x", heading: "H" });
+    }
+    expect(wikiFromEdited("x", "a]b")).toBe("x|ab");
+    expect(wikiFromEdited("x", "a\nb")).toBe("x|a b");
+    expect(wikiFromEdited("x", "[]")).toBe("x");
+    expect(wikiFromEdited("a".repeat(512), "yz")).toBe("a".repeat(512));
+    expect(wikiFromEdited("a".repeat(511), "yz")).toBe("a".repeat(511));
+    const emoji = wikiFromEdited("a".repeat(500), "😀".repeat(10));
+    expect(emoji).toBe(`${"a".repeat(500)}|${"😀".repeat(5)}`);
   });
 });
