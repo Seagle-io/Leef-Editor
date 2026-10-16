@@ -161,6 +161,37 @@
     return true;
   }
 
+  /**
+   * Cells copied from Excel / Calc / Sheets or a Word table arrive as an HTML
+   * table plus tab-separated text: paste them as a Markdown table, not as
+   * tab-mangled lines. The converter is loaded on first use (bundle size).
+   */
+  function pasteTable(event: ClipboardEvent, target: EditorView): boolean {
+    const html = event.clipboardData?.getData("text/html") ?? "";
+    const text = event.clipboardData?.getData("text/plain") ?? "";
+    if (!/<table[\s>]/i.test(html) || !text.includes("\t")) return false;
+    event.preventDefault();
+    const { from, to } = target.state.selection.main;
+    const line = target.state.doc.lineAt(from);
+    const before = line.text.slice(0, from - line.from).trim() ? "\n\n" : "";
+    import("./office/tsv")
+      .then(({ tsvToMarkdownTable }) => {
+        const table = tsvToMarkdownTable(text);
+        const insert = table ? `${before}${table}\n` : text;
+        target.dispatch({
+          changes: { from, to, insert },
+          selection: { anchor: from + insert.length },
+          scrollIntoView: true,
+          userEvent: "input.paste",
+        });
+      })
+      .catch(() => {
+        // Converter unavailable (offline chunk load failure): paste as plain text.
+        target.dispatch({ changes: { from, to, insert: text }, userEvent: "input.paste" });
+      });
+    return true;
+  }
+
   onMount(() => {
     const extensions = [
       slashKeymap,
@@ -187,6 +218,7 @@
           syncSlashMenu(update.view);
         }
       }),
+      EditorView.domEventHandlers({ paste: pasteTable }),
       EditorView.theme({ "&": { height: "100%", fontSize: "14px" } }),
       themeCompartment.of([]),
     ];

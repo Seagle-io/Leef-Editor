@@ -37,7 +37,10 @@
     new: void;
     open: void;
     save: void;
+    saveAs: void;
     export: void;
+    exportDocx: void;
+    exportXlsx: void;
     format: string;
     jump: string;
     insertToc: void;
@@ -85,7 +88,9 @@
     openMenu = openMenu === menu ? null : menu;
   }
 
-  function fileAction(action: "new" | "open" | "save" | "export" | "print" | "openFolder"): void {
+  function fileAction(
+    action: "new" | "open" | "save" | "saveAs" | "export" | "exportDocx" | "exportXlsx" | "print" | "openFolder",
+  ): void {
     dispatch(action);
     openMenu = null;
   }
@@ -132,6 +137,11 @@
           <Icon name="folderOpen" size="1rem" /> Ouvrir un dossier…
         </button>
         <button class="menu-item" on:click={() => fileAction("save")}><Icon name="save" size="1rem" /> Enregistrer</button>
+        <button class="menu-item" on:click={() => fileAction("saveAs")} title="Markdown, Word (.docx) ou Excel (.xlsx) — Ctrl/Cmd+Shift+S">
+          <Icon name="save" size="1rem" /> Enregistrer sous…
+        </button>
+        <button class="menu-item" on:click={() => fileAction("exportDocx")}><Icon name="export" size="1rem" /> Exporter Word (.docx)</button>
+        <button class="menu-item" on:click={() => fileAction("exportXlsx")}><Icon name="export" size="1rem" /> Exporter Excel (.xlsx)</button>
         <button class="menu-item" on:click={() => fileAction("export")}><Icon name="export" size="1rem" /> Exporter HTML</button>
         <button class="menu-item" on:click={() => fileAction("print")}><Icon name="print" size="1rem" /> Imprimer / PDF…</button>
       </div>

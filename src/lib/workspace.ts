@@ -1,10 +1,10 @@
 /**
- * Workspace = a folder opened as a tree of markdown files. Desktop only: it
+ * Workspace = a folder opened as a tree of documents (Markdown, Word, Excel). Desktop only: it
  * needs real directory access, which the browser build doesn't have (the
  * explorer is simply hidden there).
  */
 import { writable } from "svelte/store";
-import { isTauri } from "./fileio";
+import { isTauri, OPENABLE, readDocument } from "./fileio";
 
 export interface TreeNode {
   name: string;
@@ -19,7 +19,6 @@ export interface Workspace {
   tree: TreeNode[];
 }
 
-const MARKDOWN = /\.(md|markdown|txt)$/i;
 /** Folders never worth showing in a notes tree. */
 const SKIP = new Set([".git", "node_modules", ".obsidian", "target", "dist", ".svelte-kit"]);
 const MAX_DEPTH = 8;
@@ -47,9 +46,9 @@ async function readTree(dir: string, depth = 0): Promise<TreeNode[]> {
     if (entry.isDirectory) {
       if (depth >= MAX_DEPTH) continue;
       const children = await readTree(path, depth + 1);
-      // Directories with no markdown anywhere below are just noise.
+      // Directories with no document anywhere below are just noise.
       if (children.length > 0) nodes.push({ name: entry.name, path, children });
-    } else if (MARKDOWN.test(entry.name)) {
+    } else if (OPENABLE.test(entry.name)) {
       nodes.push({ name: entry.name, path });
     }
   }
@@ -88,7 +87,7 @@ export function closeWorkspace(): void {
   workspace.set(null);
 }
 
+/** Word / Excel files of the workspace open as Markdown, like any other note. */
 export async function readWorkspaceFile(path: string): Promise<string> {
-  const { readTextFile } = await import("@tauri-apps/plugin-fs");
-  return readTextFile(path);
+  return readDocument(path);
 }

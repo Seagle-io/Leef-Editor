@@ -64,7 +64,7 @@ export interface TocItem {
   id: string;
 }
 
-function slugify(text: string): string {
+export function slugify(text: string): string {
   return (
     text
       .toLowerCase()
@@ -96,9 +96,19 @@ function collectHeadings(tokens: Token[]): TocItem[] {
   return items;
 }
 
-export function renderDocument(source: string): { html: string; toc: TocItem[] } {
+export type MarkdownToken = Token;
+
+/**
+ * Tokens with heading ids already assigned: the common input of the HTML
+ * renderer and of the Word / Excel exporters, so anchors match everywhere.
+ */
+export function parseMarkdown(source: string): { tokens: Token[]; toc: TocItem[] } {
   const tokens = md.parse(source, {});
-  const toc = collectHeadings(tokens);
+  return { tokens, toc: collectHeadings(tokens) };
+}
+
+export function renderDocument(source: string): { html: string; toc: TocItem[] } {
+  const { tokens, toc } = parseMarkdown(source);
   const html = md.renderer.render(tokens, md.options, {});
   return { html, toc };
 }

@@ -5,13 +5,13 @@
   import Outline from "./lib/Outline.svelte";
   import Tabs from "./lib/Tabs.svelte";
   import Explorer from "./lib/Explorer.svelte";
-  import { openFile, saveFile, exportHtml } from "./lib/fileio";
+  import { openFile, saveFile, exportHtml, exportOffice, type ExportContext } from "./lib/fileio";
   import { renderDocument, generateTocMarkdown } from "./lib/markdown";
   import { loadSession, saveSession } from "./lib/draft";
   import { theme } from "./lib/theme";
   import { panes, showPane } from "./lib/panes";
   import { previewEditable } from "./lib/previewEdit";
-  import { pageMode, pageFormat, pageHeader, pageFooter } from "./lib/page";
+  import { pageMode, pageFormat, pageHeader, pageFooter, getPageFormat, PAGE_MARGIN_MM } from "./lib/page";
   import {
     activeDoc,
     activeId,
@@ -135,7 +135,7 @@ console.log("hello gmd");
     const key = event.key.toLowerCase();
     if (key === "s") {
       event.preventDefault();
-      handleSave();
+      handleSave(event.shiftKey);
     } else if (key === "o") {
       event.preventDefault();
       handleOpen();
@@ -223,12 +223,21 @@ console.log("hello gmd");
     }
   }
 
-  async function handleSave() {
+  /** Title and page layout (format, margins, header / footer) for Word / Excel output. */
+  function exportContext(): ExportContext {
+    const format = getPageFormat($pageFormat);
+    return {
+      title: documentTitle,
+      page: { widthMm: format.width, heightMm: format.height, marginMm: PAGE_MARGIN_MM, header: $pageHeader, footer: $pageFooter },
+    };
+  }
+
+  async function handleSave(saveAs = false) {
     error = null;
     const doc = $activeDoc;
     if (!doc) return;
     try {
-      const saved = await saveFile(doc.content, doc.path);
+      const saved = await saveFile(doc.content, doc.path, exportContext(), saveAs);
       if (saved) {
         updateDoc(doc.id, { path: saved, dirty: false });
         persistSession();
@@ -250,6 +259,18 @@ console.log("hello gmd");
       await exportHtml(html, `${documentTitle}.html`);
     } catch (err) {
       error = `Impossible d'exporter en HTML : ${err instanceof Error ? err.message : String(err)}`;
+    }
+  }
+
+  async function handleExportOffice(format: "docx" | "xlsx") {
+    error = null;
+    const doc = $activeDoc;
+    if (!doc) return;
+    try {
+      await exportOffice(format, doc.content, doc.path, exportContext());
+    } catch (err) {
+      const label = format === "docx" ? "Word" : "Excel";
+      error = `Impossible d'exporter en ${label} : ${err instanceof Error ? err.message : String(err)}`;
     }
   }
 
@@ -309,8 +330,11 @@ console.log("hello gmd");
       on:new={handleNew}
       on:open={handleOpen}
       on:openFolder={handleOpenFolder}
-      on:save={handleSave}
+      on:save={() => handleSave()}
+      on:saveAs={() => handleSave(true)}
       on:export={handleExport}
+      on:exportDocx={() => handleExportOffice("docx")}
+      on:exportXlsx={() => handleExportOffice("xlsx")}
       on:print={handlePrint}
       on:format={handleFormat}
       on:jump={handleJump}

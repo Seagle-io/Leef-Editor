@@ -52,7 +52,8 @@ async function getService(): Promise<TurndownServiceType> {
       },
     });
 
-    // mkdocs-material admonition → `!!! type "Title"` block.
+    // Admonition → `!!! type "Title"` … `!!!` block (markdown-it-admonition
+    // syntax: the body is not indented and the block has a closing marker).
     service.addRule("admonition", {
       filter: (node) => node.classList?.contains("admonition") ?? false,
       replacement: (_content, node) => {
@@ -63,12 +64,8 @@ async function getService(): Promise<TurndownServiceType> {
         titleEl?.remove();
         const bodyHtml = el.innerHTML;
         const body = turndownSync(service, bodyHtml).trim();
-        const indented = body
-          .split("\n")
-          .map((line) => (line.trim() === "" ? "" : `    ${line}`))
-          .join("\n");
         const heading = title && title.toLowerCase() !== type ? `!!! ${type} "${title}"` : `!!! ${type}`;
-        return `\n\n${heading}\n${indented}\n\n`;
+        return `\n\n${heading}\n${body ? `${body}\n` : ""}!!!\n\n`;
       },
     });
 

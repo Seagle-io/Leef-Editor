@@ -47,10 +47,9 @@ describe("markdown round trip", () => {
     expect(result).toContain("| 1 | 2 |");
   });
 
-  it("keeps an admonition as a !!! block", async () => {
-    const result = await roundTrip('!!! warning "Attention"\n    Du texte important.\n');
-    expect(result).toContain('!!! warning "Attention"');
-    expect(result).toContain("Du texte important.");
+  it("keeps an admonition as a closed !!! block", async () => {
+    const result = await roundTrip('!!! warning "Attention"\nDu **texte** important.\n!!!\n\nAprès.\n');
+    expect(result).toBe('!!! warning "Attention"\nDu **texte** important.\n!!!\n\nAprès.\n');
   });
 
   it("keeps a manual page break", async () => {
