@@ -12,7 +12,12 @@ import {
   submitPrompt,
   type DialogRequest,
 } from "./dialog";
-import { fonts, setFont } from "./font";
+import { fonts } from "./font";
+
+// store.ts (lu par font.ts) écoute prefers-color-scheme au chargement : jsdom n'a pas matchMedia.
+vi.hoisted(() => {
+  window.matchMedia = () => ({ matches: false, addEventListener: () => undefined, removeEventListener: () => undefined }) as unknown as MediaQueryList;
+});
 
 const source = (chemin: string): string => readFileSync(new URL(chemin, import.meta.url), "utf8");
 const contentCss = source("../styles/content.css");
@@ -164,20 +169,114 @@ describe("Dialog.svelte : focus rendu à l'origine (D1)", () => {
 });
 
 describe("coquille : police, icône copier, barre, marque de démarrage", () => {
-  it("D2 police : setFont pose --leef-font-content, lu par l'aperçu", () => {
+  type Font = typeof import("./font");
+  type Store = typeof import("./themes/store");
+  /** Rechargement : modules neufs, stockage conservé. */
+  const reload = async (): Promise<{ f: Font; s: Store }> => {
+    vi.resetModules();
+    document.documentElement.removeAttribute("style");
+    const s = await import("./themes/store");
+    return { f: await import("./font"), s };
+  };
+  const PRESETS = { inter: "ui", georgia: "serif", "jetbrains-mono": "mono" } as const;
+  const contentVar = (): string => document.documentElement.style.getPropertyValue("--leef-font-content");
+
+  it("D2/V2 police : setFont = editTheme(thème actif, { contentFont }), aperçu posé par le thème", async () => {
+    localStorage.clear();
+    const { f, s } = await reload();
+    f.setFont("inter");
+    expect(get(s.themeState).themes.filter((t) => !t.builtin)).toEqual([]);
     expect(contentCss).toMatch(/\.leef-content \{\s*font-family: var\(--leef-font-content\);/);
-    for (const f of fonts) {
-      setFont(f.id);
-      expect(document.documentElement.style.getPropertyValue("--leef-font-content")).toBe(f.stack);
+    for (const { id } of fonts) {
+      f.setFont(id);
+      expect(get(f.font)).toBe(id);
+      expect(get(s.activeTheme).contentFont).toBe(PRESETS[id]);
+      expect(contentVar()).toBe(`var(--leef-font-${PRESETS[id]})`);
+    }
+    const copies = get(s.themeState).themes.filter((t) => !t.builtin);
+    expect(copies.map((t) => t.name)).toEqual([`${get(s.themeState).themes.find((t) => t.id === "leef-auto")?.name} personnalisé`]);
+    expect(get(s.activeTheme).id).toBe(copies[0].id);
+    const again = await reload();
+    again.f.setFont("jetbrains-mono");
+    expect(get(again.s.themeState).themes.filter((t) => !t.builtin)).toHaveLength(1);
+  });
+
+  it("V2 thème actif contentFont serif + rechargement → aperçu serif, gmd-font jamais réécrite", async () => {
+    localStorage.clear();
+    const first = await reload();
+    first.s.editTheme(get(first.s.activeTheme).id, { contentFont: "serif" });
+    expect(localStorage.getItem("gmd-font")).toBeNull();
+    const { f } = await reload();
+    expect(contentVar()).toBe("var(--leef-font-serif)");
+    expect(get(f.font)).toBe("georgia");
+    expect(localStorage.getItem("gmd-font")).toBeNull();
+    f.setFont("jetbrains-mono");
+    const after = await reload();
+    expect(get(after.f.font)).toBe("jetbrains-mono");
+    expect(contentVar()).toBe("var(--leef-font-mono)");
+    expect(localStorage.getItem("gmd-font")).toBeNull();
+    localStorage.setItem("gmd-font", "georgia");
+    const ignored = await reload();
+    expect(get(ignored.f.font)).toBe("jetbrains-mono");
+    expect(localStorage.getItem("gmd-font")).toBe("georgia");
+  });
+
+  it("V2 migration gmd-font (hostile ou héritée) → thème, clé supprimée, non réécrite", async () => {
+    const hostile = ["", "__proto__", "constructor", "GEORGIA", "georgia\n", "😀", "‮serif", "e\u0301", "\uD800", "x".repeat(100_000), "inter"];
+    const cas: [string, string][] = [...hostile.map((v): [string, string] => [v, "inter"]), ["georgia", "georgia"], ["jetbrains-mono", "jetbrains-mono"]];
+    for (const [v, attendu] of cas) {
+      localStorage.clear();
+      localStorage.setItem("gmd-font", v);
+      const { f } = await reload();
+      expect(get(f.font), JSON.stringify(v.slice(0, 20))).toBe(attendu);
+      expect(contentVar()).toBe(`var(--leef-font-${PRESETS[attendu as keyof typeof PRESETS]})`);
+      expect(localStorage.getItem("gmd-font")).toBeNull();
     }
   });
 
-  it("D2 police stockée hostile → Inter posé sur --leef-font-content", async () => {
-    for (const v of ["", "__proto__", "GEORGIA", "georgia\n", "😀", "x".repeat(100_000)]) {
-      localStorage.setItem("gmd-font", v);
-      vi.resetModules();
-      await import("./font");
-      expect(document.documentElement.style.getPropertyValue("--leef-font-content")).toBe(fonts[0].stack);
+  it("V1 font.ts : gmd-font illisible ou non inscriptible → module chargé, aucun accès à gmd-font", async () => {
+    localStorage.clear();
+    await reload();
+    const getItem = Storage.prototype.getItem;
+    const setItem = Storage.prototype.setItem;
+    const touched: string[] = [];
+    const deny = (key: string): void => {
+      if (key === "gmd-font") {
+        touched.push(key);
+        throw new DOMException("denied", "SecurityError");
+      }
+    };
+    const g = vi.spyOn(Storage.prototype, "getItem").mockImplementation(function (this: Storage, key: string) {
+      deny(key);
+      return getItem.call(this, key);
+    });
+    const w = vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (this: Storage, key: string, value: string) {
+      deny(key);
+      setItem.call(this, key, value);
+    });
+    try {
+      const { f } = await reload();
+      f.setFont("georgia");
+      expect(get(f.font)).toBe("georgia");
+      expect(touched).toEqual([]);
+    } finally {
+      g.mockRestore();
+      w.mockRestore();
+    }
+  });
+
+  it("setFont, stockage plein → erreur remontée, police inchangée", async () => {
+    localStorage.clear();
+    const { f } = await reload();
+    const w = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("plein", "QuotaExceededError");
+    });
+    try {
+      expect(() => f.setFont("georgia")).toThrow(/QuotaExceededError/);
+      expect(get(f.font)).toBe("inter");
+      expect(contentVar()).toBe("var(--leef-font-ui)");
+    } finally {
+      w.mockRestore();
     }
   });
 

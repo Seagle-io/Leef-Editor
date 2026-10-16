@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { NoteIndex, type NoteFile } from "./noteIndex";
-import { planRename, rewriteRefs } from "./rename";
+import { scanWikiRefs } from "./parse";
+import { planRename, renameRewrites, rewriteRefs } from "./rename";
 
 const f = (rel: string, content = ""): NoteFile => ({ path: `/w/${rel}`, rel, content });
 
@@ -93,5 +94,101 @@ describe("planRename", () => {
     const ix = NoteIndex.build([f("é.md"), f("s.md", "[[é]] [[É]]")]);
     expect(() => planRename(ix, "/w/zz.md", "/w/y.md", "y.md")).toThrow("Note inconnue");
     expect(planRename(ix, "/w/é.md", "/w/😀.md", "😀.md").total).toBe(2);
+  });
+});
+
+/** Applies the rewrites and the move; lists every existing link whose target changed (it must stay on its note, or follow `from`). */
+function apply(files: NoteFile[], from: string, toRel: string) {
+  const to = `/w/${toRel}`;
+  const before = NoteIndex.build(files);
+  const rewrites = renameRewrites(before, from, to, toRel);
+  expect(rewrites.map(({ path, count }) => ({ path, count }))).toEqual(planRename(before, from, to, toRel).files);
+  const contents = new Map(rewrites.map((r) => [r.path, r.content]));
+  const next = files.map((n) => (n.path === from ? { path: to, rel: toRel, content: contents.get(n.path) ?? n.content } : { ...n, content: contents.get(n.path) ?? n.content }));
+  const after = NoteIndex.build(next);
+  const moved: string[] = [];
+  files.forEach((n, i) => {
+    const was = scanWikiRefs(n.content);
+    const now = scanWikiRefs(next[i].content);
+    if (was.length !== now.length) moved.push(`${n.rel}: ${was.length} refs → ${now.length}`);
+    was.forEach((r, k) => {
+      const target = before.resolve(r.target, n.path);
+      if (target === null) return;
+      const got = now[k] ? after.resolve(now[k].target, next[i].path) : null;
+      if (got !== (target === from ? to : target)) moved.push(`${n.rel} [[${r.raw}]] → [[${now[k]?.raw}]] : ${target} → ${got}`);
+    });
+  });
+  return { contents: Object.fromEntries(contents), moved };
+}
+
+describe("renameRewrites: no link changes target (T022 F1 F2, decision D7)", () => {
+  it("a root note keeps its links: [[A]] → [[/A]] when d1/X becomes d1/A", () => {
+    const r = apply([f("A.md"), f("d1/X.md"), f("d1/s.md", "[[A]] [[A#T|v]]")], "/w/d1/X.md", "d1/A.md");
+    expect(r).toEqual({ contents: { "/w/d1/s.md": "[[/A]] [[/A#T|v]]" }, moved: [] });
+  });
+
+  it("renamed to the root while d1/A d2/A d3/A exist: links reach the root note, others keep theirs", () => {
+    const files = [f("d1/A.md"), f("d2/A.md"), f("d3/A.md"), f("d4/X.md"), f("d1/s.md", "[[X]]"), f("d4/s.md", "[[X]]"), f("r.md", "[[A]]")];
+    const r = apply(files, "/w/d4/X.md", "A.md");
+    expect(r.moved).toEqual([]);
+    expect(r.contents).toEqual({ "/w/d1/s.md": "[[/A]]", "/w/d4/s.md": "[[A]]", "/w/r.md": "[[d1/A]]" });
+  });
+
+  it("root rename captured by a nearer note: d1/sub/* [[A#T]] → [[/X#T]]", () => {
+    const r = apply([f("A.md"), f("d1/sub/X.md"), f("d1/sub/s.md", "[[A#T]]")], "/w/A.md", "X.md");
+    expect(r).toEqual({ contents: { "/w/d1/sub/s.md": "[[/X#T]]" }, moved: [] });
+  });
+
+  it("a path captured by a suffix match goes absolute: z/d1/s [[X]] → [[/d1/A]]", () => {
+    const r = apply([f("z/d1/A.md"), f("d4/X.md"), f("z/d1/s.md", "[[X]]")], "/w/d4/X.md", "d1/A.md");
+    expect(r).toEqual({ contents: { "/w/z/d1/s.md": "[[/d1/A]]" }, moved: [] });
+  });
+
+  it("the moved note's own links keep their targets in its new folder", () => {
+    const r = apply([f("d1/A.md"), f("d1/sub/A.md"), f("d1/sub/B.md", "[[A#T]] [[B]] [[#T]]")], "/w/d1/sub/B.md", "d1/B.md");
+    expect(r).toEqual({ contents: { "/w/d1/sub/B.md": "[[d1/sub/A#T]] [[B]] [[#T]]" }, moved: [] });
+  });
+
+  it("a table cell keeps its \\| escape: | [[Note\\|alias]] | 1 | → | [[Neuf\\|alias]] | 1 |", () => {
+    const table = "| lien | n |\n|---|---|\n| [[Note\\|alias]] | 1 |\n| [[Note|x]] | [[Note#H\\|y]] |\n";
+    const r = apply([f("Note.md"), f("t.md", table)], "/w/Note.md", "Neuf.md");
+    expect(r.moved).toEqual([]);
+    expect(r.contents["/w/t.md"]).toBe("| lien | n |\n|---|---|\n| [[Neuf\\|alias]] | 1 |\n| [[Neuf|x]] | [[Neuf#H\\|y]] |\n");
+  });
+
+  it("hostile names: emoji, RTL, combining marks, empty and huge content", () => {
+    const files = [f("😀.md"), f("d/שלום.md"), f("d/X.md"), f("d/s.md", "[[😀]] [[שלום]] [[e\u0301]]"), f("é.md"), f("e.md", ""), f("big.md", "[[X]] ".repeat(20_000))];
+    expect(apply(files, "/w/d/X.md", "d/😀.md").moved).toEqual([]);
+    expect(apply(files, "/w/d/X.md", "d/é.md").moved).toEqual([]);
+    expect(apply(files, "/w/e.md", "שלום.md").moved).toEqual([]);
+    expect(renameRewrites(NoteIndex.build(files), "/w/d/X.md", "/w/d/Y.md", "d/Y.md").find((x) => x.path === "/w/big.md")?.count).toBe(20_000);
+  });
+
+  it("property: 3 000 random renames, with and without root notes, change no existing link's target", () => {
+    for (const dirs of [["", "d1/", "d2/", "d1/sub/"], ["d0/", "d1/", "d2/", "d1/sub/"]]) {
+      let seed = 42;
+      const rnd = (n: number): number => {
+        seed = (seed + 0x6d2b79f5) | 0;
+        let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+        t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+        return ((t ^ (t >>> 14)) >>> 0) % n;
+      };
+      const names = ["A", "B", "X"];
+      const refs = ["[[A]]", "[[B]]", "[[X]]", "[[d1/A]]", "[[d2/A]]", "[[sub/A]]", "[[A#T]]", "[[A|al]]", "[[#T]]", "[[d1/X]]", "[[x]]", "[[/A]]", "[[/d1/A]]", "| [[A\\|t]] |"];
+      const fails: string[] = [];
+      for (let k = 0; k < 3000; k++) {
+        const rels = new Set<string>();
+        const want = 2 + rnd(6);
+        while (rels.size < want) rels.add(dirs[rnd(4)] + names[rnd(3)] + ".md");
+        const files = [...rels].map((rel) => f(rel, Array.from({ length: rnd(4) }, () => refs[rnd(refs.length)]).join(" ")));
+        const from = files[rnd(files.length)].path;
+        let toRel = "";
+        do toRel = dirs[rnd(4)] + names[rnd(3)] + ".md";
+        while (rels.has(toRel));
+        const { moved } = apply(files, from, toRel);
+        if (moved.length > 0) fails.push(`${JSON.stringify(files.map((x) => [x.rel, x.content]))} ${from} → ${toRel} : ${moved.join(" ; ")}`);
+      }
+      expect(fails.slice(0, 3), `${fails.length} / 3000, root ${dirs[0] === ""}`).toEqual([]);
+    }
   });
 });

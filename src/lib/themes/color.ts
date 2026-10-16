@@ -7,7 +7,7 @@ type Rgb = [number, number, number];
 /** Couleur du texte T002 par schéma : cible de l'ajustement de l'accent. */
 const TEXT: Record<Scheme, string> = { light: "#1d1d1f", dark: "#f5f5f7" };
 const MIN_CONTRAST = 4.5;
-const STEP = 0.05;
+const STEPS = 20;
 
 function parseHex(hex: string): Rgb {
   if (!HEX_COLOR.test(hex)) throw new Error(`Couleur invalide : ${hex}`);
@@ -43,12 +43,21 @@ function blackOrWhite(bg: string): string {
   return contrastRatio("#ffffff", bg) >= contrastRatio("#000000", bg) ? "#ffffff" : "#000000";
 }
 
-export function accentVars(hex: string, scheme: Scheme, bg: string): { accent: string; fill: string; selection: string; onAccent: string } {
-  // Fond surchargé trop proche du texte : la cible devient blanc ou noir, donc t = 1 atteint toujours 4.5.
-  const target = contrastRatio(TEXT[scheme], bg) >= MIN_CONTRAST ? TEXT[scheme] : blackOrWhite(bg);
+/** `surfaces` : autres fonds où l'accent s'affiche (barre latérale, popover, contrôle) ; l'accent vise le plus exigeant. */
+export function accentVars(
+  hex: string,
+  scheme: Scheme,
+  bg: string,
+  surfaces: readonly string[] = [],
+): { accent: string; fill: string; selection: string; onAccent: string } {
+  const minContrast = (color: string): number => surfaces.reduce((min, s) => Math.min(min, contrastRatio(color, s)), contrastRatio(color, bg));
+  // Texte sous 4.5 sur une surface : la cible devient blanc ou noir, au meilleur minimum (bg seul : t = 1 atteint 4.5).
+  const target =
+    minContrast(TEXT[scheme]) >= MIN_CONTRAST ? TEXT[scheme] : minContrast("#ffffff") >= minContrast("#000000") ? "#ffffff" : "#000000";
   let accent = hex;
-  for (let step = 1; contrastRatio(accent, bg) < MIN_CONTRAST; step++) {
-    accent = mixHex(hex, target, Math.min(1, STEP * step));
+  // Bornée : surfaces irréconciliables → la cible, meilleur effort.
+  for (let step = 1; step <= STEPS && minContrast(accent) < MIN_CONTRAST; step++) {
+    accent = mixHex(hex, target, step / STEPS);
   }
   return { accent, fill: hex, selection: mixHex(hex, bg, 0.75), onAccent: blackOrWhite(hex) };
 }

@@ -95,10 +95,13 @@ export class NoteIndex {
     if (t === "") return fromPath;
     const paths = this.byKey.get(t.slice(t.lastIndexOf("/") + 1));
     if (!paths) return null;
+    // D7 : un « / » initial part de la racine du dossier ([[/A]] vise A.md, jamais d1/A.md).
+    const root = t.startsWith("/");
     const found: NoteEntry[] = [];
     for (const p of paths) {
       const e = this.entries.get(p);
-      if (e && (!t.includes("/") || noteKey(e.rel) === t || noteKey(e.rel).endsWith(`/${t}`))) found.push(e);
+      const rel = e ? noteKey(e.rel) : "";
+      if (e && (root ? rel === t.slice(1) : !t.includes("/") || rel === t || rel.endsWith(`/${t}`))) found.push(e);
     }
     if (found.length === 0) return null;
     const home = fromPath === null ? undefined : this.entries.get(fromPath);

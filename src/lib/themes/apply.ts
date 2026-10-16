@@ -2,6 +2,12 @@ import { HEX_COLOR, accentVars } from "./color";
 import { ACCENT_PRESETS, FONT_PRESETS, type AccentPreset, type Scheme, type Theme, type ThemeBase } from "./model";
 
 const FALLBACK_BG: Record<Scheme, string> = { light: "#ffffff", dark: "#1c1c1e" };
+/** Autres surfaces de tokens.css où l'accent s'affiche, hors surcharge du thème. */
+const SURFACE_TOKENS = ["bg-sidebar", "bg-elevated", "bg-control"] as const;
+const SURFACES: Record<Scheme, Record<(typeof SURFACE_TOKENS)[number], string>> = {
+  light: { "bg-sidebar": "#f2f2f4", "bg-elevated": "#ffffff", "bg-control": "#e6e6e9" },
+  dark: { "bg-sidebar": "#232325", "bg-elevated": "#2c2c2e", "bg-control": "#353538" },
+};
 const DARK_QUERY = "(prefers-color-scheme: dark)";
 
 let applied: string[] = [];
@@ -32,7 +38,8 @@ export function themeVariables(t: Theme, scheme: Scheme, bgContent: string): Rec
     "--leef-measure": t.lineWidth === null ? "none" : `${t.lineWidth}ch`,
   };
   if (!isPreset(t.accent)) {
-    const accent = accentVars(t.accent, scheme, colors["bg-content"] ?? bgContent);
+    const surfaces = SURFACE_TOKENS.map((token) => colors[token] ?? SURFACES[scheme][token]);
+    const accent = accentVars(t.accent, scheme, colors["bg-content"] ?? bgContent, surfaces);
     vars["--leef-accent"] = accent.accent;
     vars["--leef-accent-fill"] = accent.fill;
     vars["--leef-text-selection"] = accent.selection;

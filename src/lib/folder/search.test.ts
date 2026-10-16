@@ -297,6 +297,34 @@ describe("searchInWorker", () => {
     expect(FakeWorker.made[0].terminated).toBe(1);
   });
 
+  it("an unbounded or invalid timeoutMs (Infinity, 2^31, 1e12, NaN) does not fire at once (T022 F6)", async () => {
+    vi.stubGlobal("Worker", FakeWorker);
+    FakeWorker.mode = "silent";
+    for (const timeoutMs of [Infinity, 2 ** 31, 1e12, NaN]) {
+      const controller = new AbortController();
+      let state = "pending";
+      const pending = searchInWorker(re("foo"), [note("a.md", "foo")], controller.signal, { timeoutMs });
+      pending.then(
+        () => (state = "resolved"),
+        () => (state = "rejected"),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      expect(state, String(timeoutMs)).toBe("pending");
+      controller.abort();
+      await expect(pending).rejects.toThrow(INTERRUPTED);
+    }
+    expect(FakeWorker.made.map((w) => w.terminated)).toEqual([1, 1, 1, 1]);
+  });
+
+  it("a zero, negative or fractional timeoutMs still times out, after at least 1 ms (T022 F6)", async () => {
+    vi.stubGlobal("Worker", FakeWorker);
+    FakeWorker.mode = "silent";
+    for (const timeoutMs of [0, -1, -Infinity, 0.4, 2.5]) {
+      await expect(searchInWorker(re("foo"), [note("a.md", "foo")], new AbortController().signal, { timeoutMs }), String(timeoutMs)).rejects.toThrow(INTERRUPTED);
+    }
+    expect(FakeWorker.made.map((w) => w.terminated)).toEqual([1, 1, 1, 1, 1]);
+  });
+
   it("a late abort after the answer neither rejects nor terminates twice", async () => {
     vi.stubGlobal("Worker", FakeWorker);
     const controller = new AbortController();

@@ -100,8 +100,9 @@
 </script>
 
 {#if open}
+  <!-- Voile : mousedown|preventDefault, sinon l'action par défaut reprend le focus rendu par close() (→ body). -->
   <!-- svelte-ignore a11y-click-events-have-key-events a11y-no-static-element-interactions -->
-  <div class="scrim" on:mousedown={() => void close()}></div>
+  <div class="scrim" on:mousedown|preventDefault={() => void close()}></div>
   <!-- svelte-ignore a11y-no-noninteractive-element-interactions -->
   <div class="palette" role="dialog" aria-modal="true" aria-label="Rechercher et commandes" on:keydown={onKeydown}>
     <div class="input">
@@ -126,7 +127,7 @@
       {#each groups as group, gi (group.title)}
         <div role="group" aria-labelledby="palette-g-{gi}">
           <div class="group" id="palette-g-{gi}" role="presentation">{group.title}</div>
-          {#each group.entries as entry, j (entry.kind === "create" ? "+" : entry.row.id)}
+          {#each group.entries as entry, j (`${j}:${entry.kind === "create" ? "+" : entry.row.id}`)}
             {@const i = offsets[gi] + j}
             {@const icon = iconFor(entry)}
             <!-- svelte-ignore a11y-click-events-have-key-events -->
@@ -146,7 +147,11 @@
               <span class="text">
                 {#if entry.kind === "create"}
                   <span class="label">Créer la note « {entry.name} »</span>
-                  <span class="hint">{hasCommands ? "Aucune note" : "Aucune note ni commande"} pour « {quote(entry.name)} »</span>
+                  {#if group.entries.length > 1}
+                    <span class="hint">Aucune note nommée « {quote(entry.name)} »</span>
+                  {:else}
+                    <span class="hint">{hasCommands ? "Aucune note" : "Aucune note ni commande"} pour « {quote(entry.name)} »</span>
+                  {/if}
                 {:else}
                   <span class="label">{#each highlightSegments(entry.row.label, entry.row.positions) as seg}{#if seg.hit}<mark>{seg.text}</mark>{:else}{seg.text}{/if}{/each}</span>
                   {#if entry.kind !== "command" && entry.row.detail !== ""}<span class="hint">{entry.row.detail}</span>{/if}

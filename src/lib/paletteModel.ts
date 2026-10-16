@@ -118,7 +118,12 @@ function creatableName(query: string): string | null {
   return name;
 }
 
-/** Groupes affichés : ">" Commandes, "#" Titres, sinon Notes puis Commandes ; note absente → entrée « créer ». */
+/** Clé de comparaison de deux noms de note : espaces réduits, NFC, casse ignorée. */
+function nameKey(name: string): string {
+  return name.replace(/\s+/gu, " ").trim().normalize("NFC").toLowerCase();
+}
+
+/** Groupes affichés : ">" Commandes, "#" Titres, sinon Notes puis Commandes ; nom de note absent → entrée « créer » en fin de Notes. */
 export function paletteGroups(input: string, src: PaletteSource): PaletteGroup[] {
   const { mode, query } = parsePaletteInput(input);
   const groups: PaletteGroup[] = [];
@@ -133,8 +138,11 @@ export function paletteGroups(input: string, src: PaletteSource): PaletteGroup[]
     const notes: PaletteEntry[] = paletteRows("files", query, src)
       .slice(0, PALETTE_MIXED_MAX)
       .map((row) => ({ kind: "note", row }));
-    const name = notes.length === 0 ? creatableName(query) : null;
-    push("Notes", name === null ? notes : [{ kind: "create", name }]);
+    // « Créer » dès qu'aucune note ne porte exactement ce nom, même si des notes approchantes sont listées.
+    const name = creatableName(query);
+    const key = name === null ? null : nameKey(name);
+    const exists = key !== null && src.files.some((f) => nameKey(f.label) === key);
+    push("Notes", name === null || exists ? notes : [...notes, { kind: "create", name }]);
     push("Commandes", paletteRows("commands", query, src).slice(0, PALETTE_MIXED_MAX).map((row) => ({ kind: "command", row })));
   }
   return groups;

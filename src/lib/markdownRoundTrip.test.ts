@@ -5,7 +5,7 @@
  * tables, footnotes, page breaks).
  */
 import { describe, expect, it } from "vitest";
-import { renderDocument } from "./markdown";
+import { parseMarkdown, renderDocument } from "./markdown";
 import { htmlToMarkdown } from "./htmlToMarkdown";
 
 async function roundTrip(source: string): Promise<string> {
@@ -76,5 +76,28 @@ describe("markdown round trip", () => {
     const once = await roundTrip(source);
     const twice = await roundTrip(once);
     expect(twice).toBe(once);
+  });
+});
+
+describe("heading ids", () => {
+  const ids = (source: string): string[] => parseMarkdown(source).toc.map((item) => item.id);
+
+  it("numbers repeated titles", () => {
+    expect(ids("# A\n\n# A\n\n# A\n")).toEqual(["a", "a-1", "a-2"]);
+  });
+
+  it("never reuses an id already emitted (T023 V3)", () => {
+    expect(ids("# A\n\n## A\n\n## A-1\n")).toEqual(["a", "a-1", "a-1-1"]);
+    expect(ids("# A-1\n\n# A\n\n# A\n")).toEqual(["a-1", "a", "a-2"]);
+    expect(ids("# A\n\n# A\n\n# A-1\n\n# A-1\n\n# A\n")).toEqual(["a", "a-1", "a-1-1", "a-1-2", "a-2"]);
+    const { html } = renderDocument("# A\n\n## A\n\n## A-1\n");
+    expect(html.match(/id="[^"]*"/g)).toEqual(['id="a"', 'id="a-1"', 'id="a-1-1"']);
+  });
+
+  it("hostile titles: empty, unicode, many duplicates", () => {
+    expect(ids("#\n\n# !!!\n\n# section\n")).toEqual(["section", "section-1", "section-2"]);
+    expect(ids("# 😀 مرحبا é\n\n# 😀 مرحبا é\n")).toEqual(["-مرحبا-é", "-مرحبا-é-1"]);
+    const many = ids(Array.from({ length: 2000 }, (_, i) => `# ${i % 2 === 0 ? "A" : `A-${i}`}`).join("\n\n"));
+    expect(new Set(many).size).toBe(2000);
   });
 });

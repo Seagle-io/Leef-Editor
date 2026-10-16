@@ -27,7 +27,11 @@ function load(): Record<PaneId, boolean> {
 export const panes = writable<Record<PaneId, boolean>>(load());
 
 panes.subscribe((value) => {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(value));
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(value));
+  } catch {
+    // Storage full or blocked: the layout stays in memory for this session.
+  }
 });
 
 export function togglePane(id: PaneId): void {

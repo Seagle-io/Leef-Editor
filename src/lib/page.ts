@@ -39,17 +39,34 @@ const FOOTER_KEY = "gmd-page-footer";
 
 export const DEFAULT_FOOTER = "{page} / {pages}";
 
+function read(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    // Storage blocked: page settings fall back to their defaults.
+    return null;
+  }
+}
+
+function write(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // Storage full or blocked: page settings stay in memory for this session.
+  }
+}
+
 function isFormatId(value: string | null): value is PageFormatId {
   return value !== null && (FORMAT_IDS as string[]).includes(value);
 }
 
 function initialFormat(): PageFormatId {
-  const stored = localStorage.getItem(FORMAT_KEY);
+  const stored = read(FORMAT_KEY);
   return isFormatId(stored) ? stored : "a4";
 }
 
 export const pageFormat = writable<PageFormatId>(initialFormat());
-export const pageMode = writable<boolean>(localStorage.getItem(MODE_KEY) === "on");
+export const pageMode = writable<boolean>(read(MODE_KEY) === "on");
 
 /**
  * `@page { size: ... }` can't read a custom property, so the print page size
@@ -73,16 +90,16 @@ pageFormat.subscribe((value) => {
   root.setProperty("--page-margin", `${PAGE_MARGIN_MM}mm`);
   root.setProperty("--page-band", `${PAGE_HEADER_MM}mm`);
   applyPageSize(format);
-  localStorage.setItem(FORMAT_KEY, value);
+  write(FORMAT_KEY, value);
 });
 
-pageMode.subscribe((value) => localStorage.setItem(MODE_KEY, value ? "on" : "off"));
+pageMode.subscribe((value) => write(MODE_KEY, value ? "on" : "off"));
 
-export const pageHeader = writable<string>(localStorage.getItem(HEADER_KEY) ?? "");
-export const pageFooter = writable<string>(localStorage.getItem(FOOTER_KEY) ?? DEFAULT_FOOTER);
+export const pageHeader = writable<string>(read(HEADER_KEY) ?? "");
+export const pageFooter = writable<string>(read(FOOTER_KEY) ?? DEFAULT_FOOTER);
 
-pageHeader.subscribe((value) => localStorage.setItem(HEADER_KEY, value));
-pageFooter.subscribe((value) => localStorage.setItem(FOOTER_KEY, value));
+pageHeader.subscribe((value) => write(HEADER_KEY, value));
+pageFooter.subscribe((value) => write(FOOTER_KEY, value));
 
 export interface TemplateContext {
   page: number;

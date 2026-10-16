@@ -84,6 +84,15 @@ describe("registry", () => {
     expect(m.getCommand("theme.select.x")?.title).toBe("neuf");
   });
 
+  it("an unregister acts once: the same object re-registered survives the old one (T022 F7)", () => {
+    const x = cmd("theme.select.a");
+    const off = m.registerCommands([x]);
+    off();
+    unregister = m.registerCommands([x]);
+    off();
+    expect(m.getCommand("theme.select.a")).toBe(x);
+  });
+
   it("treats hostile ids as opaque: empty, huge, control chars, unicode, RTL", () => {
     const ids = ["", "x".repeat(100_000), "a\u0000b‮\n", "é́😀", "مرحبا"];
     unregister = m.registerCommands(ids.map((id) => cmd(id)));
@@ -142,6 +151,39 @@ describe("runCommand", () => {
       setItem.mockRestore();
     }
   });
+
+  it("reports a storage that refuses reads or writes in recentStorageError (T022 F9)", async () => {
+    expect(get(m.recentStorageError)).toBeNull();
+    const getItem = vi.spyOn(localStorage, "getItem").mockImplementation(() => {
+      throw new DOMException("bloqué", "SecurityError");
+    });
+    try {
+      vi.resetModules();
+      const blocked = await import("./commands");
+      expect(get(blocked.recentCommands)).toEqual([]);
+      expect(get(blocked.recentStorageError)).toBe("Commandes récentes illisibles : bloqué");
+    } finally {
+      getItem.mockRestore();
+    }
+    const setItem = vi.spyOn(localStorage, "setItem").mockImplementation(() => {
+      throw new DOMException("quota", "QuotaExceededError");
+    });
+    try {
+      vi.resetModules();
+      const full = await import("./commands");
+      unregister = full.registerCommands([cmd("a")]);
+      expect(await full.runCommand("a")).toBe(true);
+      expect(get(full.recentCommands)).toEqual(["a"]);
+      expect(get(full.recentStorageError)).toBe("Commandes récentes non enregistrées : quota");
+    } finally {
+      setItem.mockRestore();
+    }
+    store.set("leef-recent-commands", "{pas du json");
+    vi.resetModules();
+    const corrupt = await import("./commands");
+    expect(get(corrupt.recentCommands)).toEqual([]);
+    expect(get(corrupt.recentStorageError)).toMatch(/^Commandes récentes illisibles : /);
+  });
 });
 
 describe("matchShortcut", () => {
@@ -176,6 +218,19 @@ describe("matchShortcut", () => {
     platform("MacIntel");
     expect(m.matchShortcut(key({ key: "z", code: "KeyW", metaKey: true }), "Mod-w")).toBe(false);
     expect(m.matchShortcut(key({ key: "ƒ", code: "KeyF", metaKey: true, altKey: true }), "Mod-Alt-f")).toBe(true);
+  });
+
+  it("non-Latin layouts fall back on e.code, AZERTY still does not (T022 F3)", () => {
+    expect(m.matchShortcut(key({ key: "ы", code: "KeyS", ctrlKey: true }), "Mod-s")).toBe(true);
+    expect(m.matchShortcut(key({ key: "ς", code: "KeyW", ctrlKey: true }), "Mod-w")).toBe(true);
+    expect(m.matchShortcut(key({ key: "ל", code: "KeyK", ctrlKey: true }), "Mod-k")).toBe(true);
+    expect(m.matchShortcut(key({ key: "Ы", code: "KeyS", ctrlKey: true, shiftKey: true }), "Mod-Shift-s")).toBe(true);
+    expect(m.matchShortcut(key({ key: "ы", code: "KeyS", ctrlKey: true }), "Mod-w")).toBe(false);
+    expect(m.matchShortcut(key({ key: "😀", code: "KeyK", ctrlKey: true }), "Mod-k")).toBe(true);
+    expect(m.matchShortcut(key({ key: "z", code: "KeyW", ctrlKey: true }), "Mod-w")).toBe(false);
+    expect(m.matchShortcut(key({ key: "z", code: "KeyW", ctrlKey: true }), "Mod-z")).toBe(true);
+    expect(m.matchShortcut(key({ key: "ы", code: "", ctrlKey: true }), "Mod-s")).toBe(false);
+    expect(m.matchShortcut(key({ key: "ы", code: "KeyS", ctrlKey: true }), "Mod-ы")).toBe(true);
   });
 
   it("AZERTY Ctrl+Z does not run the Mod-w global command (T013 D2)", () => {

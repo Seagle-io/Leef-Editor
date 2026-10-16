@@ -188,6 +188,56 @@ describe("stockage local", () => {
     expect(localStorage.getItem("gmd-theme")).toBe("dark");
   });
 
+  it("V1 accès à localStorage bloqué, ou une seule clé gmd-* illisible → import sans exception, thèmes utilisables", async () => {
+    vi.spyOn(window, "localStorage", "get").mockImplementation(() => {
+      throw new DOMException("denied", "SecurityError");
+    });
+    const blocked = await freshStore();
+    expect(get(blocked.themeState).error).toMatch(/indisponible/);
+    expect(blocked.selectTheme("leef-dark")).toEqual({ ok: true, value: undefined });
+    vi.restoreAllMocks();
+    for (const key of ["gmd-theme", "gmd-font"]) {
+      localStorage.clear();
+      localStorage.setItem("gmd-theme", "dark");
+      localStorage.setItem("gmd-font", "georgia");
+      const getItem = Storage.prototype.getItem;
+      vi.spyOn(Storage.prototype, "getItem").mockImplementation(function (this: Storage, k: string) {
+        if (k === key) throw new DOMException("denied", "SecurityError");
+        return getItem.call(this, k);
+      });
+      const store = await freshStore();
+      expect(get(store.themeState).error).toMatch(/SecurityError/);
+      expect(store.selectTheme("leef-light")).toEqual({ ok: true, value: undefined });
+      vi.restoreAllMocks();
+    }
+  });
+
+  it("V8 erreur de migration (plein) puis écriture réussie → themeState.error effacée", async () => {
+    localStorage.setItem("gmd-theme", "dark");
+    failStorage("setItem", "QuotaExceededError");
+    const store = await freshStore();
+    expect(get(store.themeState).error).toMatch(/QuotaExceededError/);
+    vi.restoreAllMocks();
+    expect(store.selectTheme("leef-light")).toEqual({ ok: true, value: undefined });
+    expect(get(store.themeState).error).toBeNull();
+  });
+
+  it("V9 stockage retiré en cours de session (getItem lève) → Result io, rien ne lève hors edit/duplicate, mémoire inchangée", async () => {
+    const store = await freshStore();
+    const id = store.duplicateTheme("leef-dark");
+    const memory = get(store.themeState);
+    failStorage("getItem", "SecurityError");
+    const io = { ok: false, error: { code: "io", message: expect.stringMatching(/SecurityError/) } };
+    expect(store.selectTheme("leef-dark")).toMatchObject(io);
+    expect(store.renameTheme(id, "Autre")).toMatchObject(io);
+    expect(store.deleteTheme(id)).toMatchObject(io);
+    expect(store.importTheme(wrapTheme({ name: "Fantôme" }))).toMatchObject(io);
+    expect(() => store.editTheme(id, { size: 20 })).toThrow(/SecurityError/);
+    expect(() => store.duplicateTheme(id)).toThrow(/SecurityError/);
+    expect(() => window.dispatchEvent(new StorageEvent("storage", { key: "leef-themes-v1" }))).not.toThrow();
+    expect(get(store.themeState)).toEqual({ ...memory, error: expect.stringMatching(/SecurityError/) });
+  });
+
   it("D5 2 onglets : événement storage → B voit l'import de A ; sans événement → fusion avant écriture ; cache = A + B", async () => {
     const a = await freshStore();
     const b = await freshStore();
@@ -293,12 +343,22 @@ describe("parseTheme — entrées hostiles", () => {
     expect(parseThemeFile(file([{ id: "user-00000000", name: "A" }, { id: "user-00000000", name: "B" }]))).toMatchObject({
       ok: false, error: { code: "invalid-field", field: "themes[1].id" },
     });
-    for (const [a, b] of [["Clair", " clair "], ["Été", "ÉTÉ"], ["Nuit 🌙", "NUIT 🌙"]]) {
+    for (const [a, b] of [["Brume", " brume "], ["Été", "ÉTÉ"], ["Nuit 🌙", "NUIT 🌙"]]) {
       expect(parseThemeFile(file([{ id: "user-00000001", name: a }, { id: "user-00000002", name: b }]))).toMatchObject({
         ok: false, error: { code: "invalid-field", field: "themes[1].name" },
       });
     }
-    expect(parseThemeFile(file([{ id: "user-00000001", name: "Clair" }, { id: "user-00000002", name: "Clair 2" }])).ok).toBe(true);
+    expect(parseThemeFile(file([{ id: "user-00000001", name: "Brume" }, { id: "user-00000002", name: "Brume 2" }])).ok).toBe(true);
+  });
+
+  it("V10 ThemeFile : nom d'un thème intégré, casse et espaces ignorés → themes[i].name ; « Clair 2 » accepté", () => {
+    const file = (themes: unknown[]): string => JSON.stringify({ version: 1, active: "leef-auto", themes });
+    for (const name of ["clair", " SOMBRE ", ...BUILTIN_THEMES.map((t) => t.name)]) {
+      expect(parseThemeFile(file([{ id: "user-00000001", name: "Brume" }, { id: "user-00000002", name }]))).toMatchObject({
+        ok: false, error: { code: "invalid-field", field: "themes[1].name" },
+      });
+    }
+    expect(parseThemeFile(file([{ id: "user-00000001", name: "Clair 2" }])).ok).toBe(true);
   });
 
   it("couleurs en majuscules normalisées en minuscules", () => {

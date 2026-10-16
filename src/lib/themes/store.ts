@@ -106,26 +106,32 @@ function writeCache(s: ThemeState): Result<void, ThemeError> {
   return { ok: true, value: undefined };
 }
 
-/** Le stockage d'abord : en cas d'échec, mémoire et page restent celles du cache. */
+/** Le stockage d'abord : en cas d'échec, mémoire et page restent celles du cache. Réussite → erreur précédente effacée, sauf stockage indisponible. */
 function commit(next: ThemeState): Result<void, ThemeError> {
   const written = writeCache(next);
   if (!written.ok) return written;
-  current = show(next);
+  current = show({ ...next, error: startError });
   state.set(current);
   schedulePersist();
   return written;
 }
 
-/** Adopte le cache écrit par un autre onglet ; illisible → ignoré, la prochaine écriture le remplace. */
-function sync(): void {
-  if (!storageOk) return;
-  const cached = localStorage.getItem(CACHE_KEY);
-  if (cached === null || cached === lastSync) return;
+/** Adopte le cache écrit par un autre onglet ; illisible → ignoré, la prochaine écriture le remplace. Stockage retiré → Result io. */
+function sync(): Result<void, ThemeError> {
+  if (!storageOk) return { ok: true, value: undefined };
+  let cached: string | null;
+  try {
+    cached = localStorage.getItem(CACHE_KEY);
+  } catch (e) {
+    return fail("io", `Lecture des thèmes impossible (${errorText(e)}) : modification annulée.`);
+  }
+  if (cached === null || cached === lastSync) return { ok: true, value: undefined };
   lastSync = cached;
   const parsed = parseThemeFile(cached);
-  if (!parsed.ok) return;
+  if (!parsed.ok) return { ok: true, value: undefined };
   current = show(fromFile(parsed.value, current.error));
   state.set(current);
+  return { ok: true, value: undefined };
 }
 
 async function loadFile(): Promise<void> {
@@ -193,9 +199,15 @@ export const activeTheme: Readable<Theme> = derived(state, (s) => s.themes.find(
 export const scheme: Readable<Scheme> = derived(state, (s) => s.scheme);
 
 export function selectTheme(id: string): Result<void, ThemeError> {
-  sync();
+  const synced = sync();
+  if (!synced.ok) return synced;
   find(id);
   return commit({ ...current, activeId: id });
+}
+
+function syncOrThrow(): void {
+  const synced = sync();
+  if (!synced.ok) throw new Error(synced.error.message);
 }
 
 function commitOrThrow(next: ThemeState): void {
@@ -204,7 +216,7 @@ function commitOrThrow(next: ThemeState): void {
 }
 
 export function editTheme(id: string, patch: Partial<Omit<Theme, "id" | "builtin" | "version">>): string {
-  sync();
+  syncOrThrow();
   const source = find(id);
   const parsed = parseTheme({ ...source, ...patch });
   if (!parsed.ok) throw new Error(parsed.error.message);
@@ -220,7 +232,7 @@ export function editTheme(id: string, patch: Partial<Omit<Theme, "id" | "builtin
 }
 
 export function duplicateTheme(id: string): string {
-  sync();
+  syncOrThrow();
   const source = find(id);
   const copy: Theme = { ...structuredClone(source), id: newId(), builtin: false, name: uniqueName(`${source.name} copie`) };
   commitOrThrow({ ...current, themes: [...current.themes, copy] });
@@ -228,7 +240,8 @@ export function duplicateTheme(id: string): string {
 }
 
 export function renameTheme(id: string, name: string): Result<void, ThemeError> {
-  sync();
+  const synced = sync();
+  if (!synced.ok) return synced;
   const source = current.themes.find((t) => t.id === id);
   if (!source) return fail("not-found", `Thème introuvable : ${id}`);
   if (source.builtin) return fail("builtin", "Un thème intégré ne se renomme pas.");
@@ -239,7 +252,8 @@ export function renameTheme(id: string, name: string): Result<void, ThemeError> 
 }
 
 export function deleteTheme(id: string): Result<void, ThemeError> {
-  sync();
+  const synced = sync();
+  if (!synced.ok) return synced;
   const source = current.themes.find((t) => t.id === id);
   if (!source) return fail("not-found", `Thème introuvable : ${id}`);
   if (source.builtin) return fail("builtin", "Un thème intégré ne se supprime pas.");
@@ -270,14 +284,24 @@ export function importTheme(json: string): Result<string, ThemeError> {
   }
   const parsed = parseTheme((raw as { theme?: unknown }).theme);
   if (!parsed.ok) return parsed;
-  sync();
+  const synced = sync();
+  if (!synced.ok) return synced;
   const theme: Theme = { ...parsed.value, id: newId(), builtin: false, name: uniqueName(parsed.value.name) };
   const written = commit({ ...current, themes: [...current.themes, theme] });
   return written.ok ? { ok: true, value: theme.id } : written;
 }
 
 function migrateLegacy(): void {
-  const legacy = localStorage.getItem("gmd-theme");
+  let legacy: string | null;
+  let font: string | null;
+  try {
+    legacy = localStorage.getItem("gmd-theme");
+    font = localStorage.getItem("gmd-font");
+  } catch (e) {
+    // Cache non écrit : la migration se rejoue au prochain démarrage.
+    setError(`Anciens réglages de thème illisibles (${errorText(e)}) : thème par défaut.`);
+    return;
+  }
   const id = legacy !== null && LEGACY_THEMES.includes(legacy) ? `leef-${legacy}` : AUTO_ID;
   const written = commit({ ...current, activeId: id });
   // Cache non écrit : gmd-* gardées, la migration se rejoue au prochain démarrage.
@@ -285,7 +309,6 @@ function migrateLegacy(): void {
     setError(written.error.message);
     return;
   }
-  const font = localStorage.getItem("gmd-font");
   if (font !== null && Object.hasOwn(LEGACY_FONTS, font)) {
     try {
       editTheme(id, { contentFont: LEGACY_FONTS[font] });
@@ -294,13 +317,19 @@ function migrateLegacy(): void {
       return;
     }
   }
-  localStorage.removeItem("gmd-theme");
-  localStorage.removeItem("gmd-font");
+  try {
+    localStorage.removeItem("gmd-theme");
+    localStorage.removeItem("gmd-font");
+  } catch {
+    // gmd-* restées : sans effet, le cache existe et la migration ne se rejoue pas.
+  }
 }
 
 if (storageOk && lastSync === null) migrateLegacy();
 window.addEventListener("storage", (e) => {
-  if (e.key === CACHE_KEY) sync();
+  if (e.key !== CACHE_KEY) return;
+  const synced = sync();
+  if (!synced.ok) setError(synced.error.message);
 });
 window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => {
   const next = resolveScheme((current.themes.find((t) => t.id === current.activeId) ?? builtinAuto).base);

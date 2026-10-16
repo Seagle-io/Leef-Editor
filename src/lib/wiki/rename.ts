@@ -1,5 +1,5 @@
-import { NoteIndex } from "./noteIndex";
-import { NOTE_FILE, noteKey, scanWikiRefs, type WikiRef } from "./parse";
+import { NoteIndex, type NoteEntry } from "./noteIndex";
+import { aliasBar, NOTE_FILE, noteKey, scanWikiRefs, type WikiRef } from "./parse";
 
 export interface RenameResult {
   renamed: boolean;
@@ -32,7 +32,19 @@ export function planRename(
   to: string,
   toRel: string,
 ): { files: { path: string; count: number }[]; total: number } {
-  if (!index.get(from)) throw new Error(`Note inconnue : ${from}`);
+  const files = renameRewrites(index, from, to, toRel).map(({ path, count }) => ({ path, count }));
+  return { files, total: files.reduce((n, f) => n + f.count, 0) };
+}
+
+/** Le plan de planRename avec le contenu réécrit de chaque fichier touché : ce que le renommage écrira. */
+export function renameRewrites(
+  index: NoteIndex,
+  from: string,
+  to: string,
+  toRel: string,
+): { path: string; count: number; content: string }[] {
+  const moved = index.get(from);
+  if (!moved) throw new Error(`Note inconnue : ${from}`);
   const full = toRel.replace(NOTE_FILE, "");
   const name = full.slice(full.lastIndexOf("/") + 1);
   const key = noteKey(name);
@@ -41,34 +53,47 @@ export function planRename(
     const k = noteKey(r.target);
     return k.slice(k.lastIndexOf("/") + 1);
   };
-  // Une ref dont le dernier segment est le nouveau nom peut basculer vers `to` après le déplacement :
-  // `after` rejoue la résolution sur l'état déplacé (seules les entrées utiles à resolve, sans contenu).
-  const captured = new Set(index.all().filter((e) => e.refs.some((r) => lastKey(r) === key)).map((e) => e.path));
+  // Une ref peut changer de cible au déplacement si elle visait `from`, si son dernier segment est le nouveau nom,
+  // ou si elle part de `from` (son dossier change). `after` rejoue la résolution sur l'état déplacé
+  // (seules les entrées utiles à resolve, sans contenu). Pas index.backlinks : son contexte relit la ligne
+  // entière à chaque ref, quadratique sur une longue ligne.
+  const targetsFrom = (e: NoteEntry, r: WikiRef): boolean => lastKey(r) === moved.key && index.resolve(r.target, e.path) === from;
+  const sources = new Set(
+    index
+      .all()
+      .filter((e) => e.path === from || e.refs.some((r) => lastKey(r) === key || targetsFrom(e, r)))
+      .map((e) => e.path),
+  );
+  const keys = new Set([key, ...moved.refs.map(lastKey)]);
   const after = NoteIndex.build(
     index
       .all()
-      .filter((e) => e.key === key || e.path === from || captured.has(e.path))
+      .filter((e) => keys.has(e.key) || sources.has(e.path))
       .map((e) => (e.path === from ? { path: to, rel: toRel, content: "" } : { path: e.path, rel: e.rel, content: "" })),
   );
-  const sources = new Set([from, ...index.backlinks(from).map((b) => b.source), ...captured]);
-  const files: { path: string; count: number }[] = [];
+  const files: { path: string; count: number; content: string }[] = [];
   for (const e of index.all()) {
     if (!sources.has(e.path)) continue;
     const home = e.path === from ? to : e.path;
-    /** Chemin (sans ext) de la note visée aujourd'hui, si le renommage détournerait la ref ; sinon null. */
-    const kept = (r: WikiRef): string | null => {
-      if (lastKey(r) !== key) return null;
+    /** Note que la ref doit viser après le déplacement, si la résolution la détournerait ; sinon null. */
+    const goal = (r: WikiRef): string | null => {
+      if (noteKey(r.target) === "") return null;
       const was = index.resolve(r.target, e.path);
-      if (was === null || was === from || after.resolve(r.target, home) === was) return null;
-      return index.get(was)?.rel.replace(NOTE_FILE, "") ?? null;
+      if (was === null || (e.path !== from && was !== from && lastKey(r) !== key)) return null;
+      const want = was === from ? to : was;
+      return after.resolve(r.target, home) === want ? null : want;
     };
-    const isTarget = (r: WikiRef) => (noteKey(r.target) !== "" && index.resolve(r.target, e.path) === from) || kept(r) !== null;
     const newInner = (r: WikiRef): string => {
-      const target = kept(r) ?? (noteKey(r.target).includes("/") || ambiguous ? full : name);
-      return target + (r.heading === null ? "" : `#${r.heading}`) + (r.alias === null ? "" : `|${r.alias}`);
+      const want = goal(r);
+      if (want === null) return r.raw;
+      const path = want === to ? full : (index.get(want)?.rel ?? "").replace(NOTE_FILE, "");
+      const short = want === to && !noteKey(r.target).includes("/") && !ambiguous ? name : path;
+      // D7 : [[/chemin]] part de la racine, dernier recours quand le nom ou le chemin se ferait capturer.
+      const target = [short, path].find((t) => after.resolve(t, home) === want) ?? `/${path}`;
+      return target + (r.heading === null ? "" : `#${r.heading}`) + (r.alias === null ? "" : `${aliasBar(r.raw)}${r.alias}`);
     };
-    const { count } = rewriteRefs(e.content, isTarget, newInner);
-    if (count > 0) files.push({ path: e.path, count });
+    const { count, content } = rewriteRefs(e.content, () => true, newInner);
+    if (count > 0) files.push({ path: e.path, count, content });
   }
-  return { files, total: files.reduce((n, f) => n + f.count, 0) };
+  return files;
 }

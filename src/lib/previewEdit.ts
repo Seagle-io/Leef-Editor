@@ -7,13 +7,22 @@ import { writable } from "svelte/store";
 const STORAGE_KEY = "gmd-preview-editable";
 
 function load(): boolean {
-  return localStorage.getItem(STORAGE_KEY) !== "false";
+  try {
+    return localStorage.getItem(STORAGE_KEY) !== "false";
+  } catch {
+    // Storage blocked: editable, the default.
+    return true;
+  }
 }
 
 export const previewEditable = writable<boolean>(load());
 
 previewEditable.subscribe((value) => {
-  localStorage.setItem(STORAGE_KEY, String(value));
+  try {
+    localStorage.setItem(STORAGE_KEY, String(value));
+  } catch {
+    // Storage full or blocked: the setting stays in memory for this session.
+  }
 });
 
 export function togglePreviewEditable(): void {

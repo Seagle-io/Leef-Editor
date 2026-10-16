@@ -36,12 +36,19 @@ export const reservedShortcuts: Readonly<Record<string, string>> = {
 const list = writable<AppCommand[]>([]);
 export const commands: Readable<AppCommand[]> = { subscribe: list.subscribe };
 
+const storageError = writable<string | null>(null);
+/** Last storage failure (blocked, full, corrupt): recent commands then live in memory for this session. */
+export const recentStorageError: Readable<string | null> = { subscribe: storageError.subscribe };
+
+const reason = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+
 function loadRecent(): string[] {
   try {
     const parsed: unknown = JSON.parse(localStorage.getItem(RECENT_KEY) ?? "[]");
     if (!Array.isArray(parsed)) return [];
     return parsed.filter((id): id is string => typeof id === "string").slice(0, RECENT_MAX);
-  } catch {
+  } catch (e) {
+    storageError.set(`Commandes récentes illisibles : ${reason(e)}`);
     return [];
   }
 }
@@ -52,8 +59,8 @@ export const recentCommands: Readable<string[]> = { subscribe: recent.subscribe 
 recent.subscribe((value) => {
   try {
     localStorage.setItem(RECENT_KEY, JSON.stringify(value));
-  } catch {
-    // Storage full or blocked: recent commands stay in memory for this session.
+  } catch (e) {
+    storageError.set(`Commandes récentes non enregistrées : ${reason(e)}`);
   }
 });
 
@@ -79,7 +86,13 @@ export function registerCommands(added: AppCommand[]): () => void {
   }
   list.update((current) => [...current, ...added]);
   const mine = new Set(added);
-  return () => list.update((current) => current.filter((command) => !mine.has(command)));
+  let done = false;
+  // Acts once: called again after the same objects were re-registered, it must not remove them.
+  return () => {
+    if (done) return;
+    done = true;
+    list.update((current) => current.filter((command) => !mine.has(command)));
+  };
 }
 
 export async function runCommand(id: string): Promise<boolean> {
@@ -103,9 +116,10 @@ export function matchShortcut(e: KeyboardEvent, keys: string): boolean {
   if ((mac ? e.metaKey : e.ctrlKey) !== wantMod) return false;
   if ((mac ? e.ctrlKey : e.metaKey) !== false) return false;
   if (e.shiftKey !== parts.includes("Shift") || e.altKey !== parts.includes("Alt")) return false;
-  // Alt rewrites e.key on macOS ("ƒ" for Alt-f), so with Alt a single letter also matches on e.code;
-  // without Alt, e.code would match the physical QWERTY key (AZERTY Mod-z is code KeyW).
-  return e.key.toLowerCase() === key.toLowerCase() || (e.altKey && key.length === 1 && e.code === `Key${key.toUpperCase()}`);
+  // A single letter also matches on e.code when e.key is no ASCII letter: Alt rewrites it on macOS ("ƒ" for Alt-f),
+  // non-Latin layouts give "ы" for Ctrl+S. An ASCII letter is trusted: e.code is the physical QWERTY key (AZERTY Mod-z is code KeyW).
+  const fallback = e.altKey || !/^[a-z]$/i.test(e.key);
+  return e.key.toLowerCase() === key.toLowerCase() || (fallback && key.length === 1 && e.code === `Key${key.toUpperCase()}`);
 }
 
 export function handleGlobalKeydown(e: KeyboardEvent): boolean {

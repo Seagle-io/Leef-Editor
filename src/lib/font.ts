@@ -1,4 +1,5 @@
-import { writable } from "svelte/store";
+import { derived, get, type Readable } from "svelte/store";
+import { activeTheme, editTheme } from "./themes/store";
 
 export type FontId = "inter" | "georgia" | "jetbrains-mono";
 
@@ -14,26 +15,15 @@ export const fonts: FontOption[] = [
   { id: "jetbrains-mono", label: "JetBrains Mono", stack: '"JetBrains Mono", "Fira Code", Consolas, monospace' },
 ];
 
-const FONT_IDS = fonts.map((f) => f.id);
-const STORAGE_KEY = "gmd-font";
+/** Préréglage `contentFont` du thème porté par chaque police de la barre. */
+const PRESET: Record<FontId, string> = { inter: "ui", georgia: "serif", "jetbrains-mono": "mono" };
 
-function isFontId(value: string | null): value is FontId {
-  return value !== null && (FONT_IDS as string[]).includes(value);
-}
+/** Police de l'aperçu lue dans le thème actif (seule source) ; pile CSS libre → Inter. */
+export const font: Readable<FontId> = derived(activeTheme, (t) => fonts.find((f) => PRESET[f.id] === t.contentFont)?.id ?? "inter");
 
-function initialFont(): FontId {
-  const stored = localStorage.getItem(STORAGE_KEY);
-  return isFontId(stored) ? stored : "inter";
-}
-
-export const font = writable<FontId>(initialFont());
-
-font.subscribe((value) => {
-  const stack = fonts.find((f) => f.id === value)?.stack ?? fonts[0].stack;
-  document.documentElement.style.setProperty("--leef-font-content", stack);
-  localStorage.setItem(STORAGE_KEY, value);
-});
-
+/** Thème intégré actif → copie « <nom> personnalisé » activée (editTheme) ; échec d'écriture → l'erreur remonte. */
 export function setFont(id: FontId): void {
-  font.set(id);
+  const theme = get(activeTheme);
+  if (theme.contentFont === PRESET[id]) return;
+  editTheme(theme.id, { contentFont: PRESET[id] });
 }

@@ -49,6 +49,20 @@ describe("NoteIndex basics", () => {
     expect(deep.resolve("n", null)).toBe("/w/r/n.md");
   });
 
+  it("a leading / starts from the root of the folder (T022 D7)", () => {
+    const ix = NoteIndex.build([f("A.md"), f("d1/A.md"), f("z/d1/A.md"), f("d1/s.md", "[[/A]] [[/d1/A#T|v]]"), f("Été.md"), f("😀.md")]);
+    expect(ix.resolve("/A", "/w/d1/s.md")).toBe("/w/A.md");
+    expect(ix.resolve("A", "/w/d1/s.md")).toBe("/w/d1/A.md");
+    expect(ix.resolve("/d1/A", "/w/z/d1/x.md")).toBe("/w/d1/A.md");
+    expect(ix.resolve("/D1/a.md", null)).toBe("/w/d1/A.md");
+    expect(ix.resolve("/e\u0301te\u0301", null)).toBe("/w/Été.md");
+    expect(ix.resolve("/😀", null)).toBe("/w/😀.md");
+    for (const bad of ["/", "//A", "/z/A", "/B", "/A/"]) expect(ix.resolve(bad, null), bad).toBeNull();
+    expect(ix.backlinks("/w/A.md").map((b) => b.ref.raw)).toEqual(["/A"]);
+    expect(ix.backlinks("/w/d1/A.md").map((b) => b.ref.raw)).toEqual(["/d1/A#T|v"]);
+    expect(NoteIndex.build([f("n.md")]).resolve("/n", null)).toBe("/w/n.md");
+  });
+
   it("backlinks: sorted, context, no self link, broken ignored, ambiguity", () => {
     const long = "x".repeat(200);
     const ix = NoteIndex.build([

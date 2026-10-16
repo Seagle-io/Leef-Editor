@@ -33,8 +33,17 @@ function isThemeId(value: string | null): value is ThemeId {
   return value !== null && (THEME_IDS as string[]).includes(value);
 }
 
+function readStored(): string | null {
+  try {
+    return localStorage.getItem(STORAGE_KEY);
+  } catch {
+    // Storage blocked: no saved theme, fall back to the system scheme.
+    return null;
+  }
+}
+
 function initialTheme(): ThemeId {
-  const stored = localStorage.getItem(STORAGE_KEY);
+  const stored = readStored();
   if (isThemeId(stored)) return stored;
   return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 }
@@ -43,7 +52,11 @@ export const theme = writable<ThemeId>(initialTheme());
 
 theme.subscribe((value) => {
   document.documentElement.dataset.theme = dataThemeOf(value);
-  localStorage.setItem(STORAGE_KEY, value);
+  try {
+    localStorage.setItem(STORAGE_KEY, value);
+  } catch {
+    // Storage full or blocked: the theme stays in memory for this session.
+  }
 });
 
 export function setTheme(id: ThemeId): void {

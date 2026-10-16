@@ -76,7 +76,8 @@ export function slugify(text: string): string {
 
 function collectHeadings(tokens: Token[]): TocItem[] {
   const items: TocItem[] = [];
-  const seen = new Map<string, number>();
+  const used = new Set<string>();
+  const counts = new Map<string, number>();
 
   for (let i = 0; i < tokens.length; i++) {
     const token = tokens[i];
@@ -84,10 +85,13 @@ function collectHeadings(tokens: Token[]): TocItem[] {
 
     const level = Number(token.tag.slice(1));
     const text = tokens[i + 1]?.content ?? "";
+    // Suffixe -n jusqu'à un id libre : « A », « A », « A-1 » → a, a-1, a-1-1 (jamais deux fois le même id).
     const base = slugify(text);
-    const count = seen.get(base) ?? 0;
-    seen.set(base, count + 1);
-    const id = count > 0 ? `${base}-${count}` : base;
+    let count = counts.get(base) ?? 0;
+    let id = base;
+    while (used.has(id)) id = `${base}-${++count}`;
+    counts.set(base, count);
+    used.add(id);
 
     token.attrSet("id", id);
     items.push({ level, text, id });

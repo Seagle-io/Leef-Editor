@@ -114,6 +114,26 @@
     } catch (e) {
       error = e instanceof Error ? e.message : String(e);
     }
+    void resyncRadios();
+  }
+
+  function choose(id: string): void {
+    const result = selectTheme(id);
+    error = result.ok ? null : result.error.message;
+    void resyncRadios();
+  }
+
+  /**
+   * Un choix refusé laisse coché le radio cliqué : Svelte ne réécrit pas `checked` quand l'état n'a pas changé.
+   * Après rendu, chaque radio reprend l'état réel, porté par la classe `on` de son libellé.
+   */
+  async function resyncRadios(): Promise<void> {
+    await tick();
+    for (const root of [popoverEl, sheetEl]) {
+      root?.querySelectorAll<HTMLInputElement>("input[type=radio]").forEach((radio) => {
+        radio.checked = radio.closest("label")?.classList.contains("on") ?? false;
+      });
+    }
   }
 
   function patch(change: Partial<Omit<Theme, "id" | "builtin" | "version">>): void {
@@ -195,7 +215,7 @@
     } else {
       try {
         const result = importTheme(await file.text());
-        if (result.ok) selectTheme(result.value);
+        if (result.ok) choose(result.value);
         else error = result.error.message;
       } catch (e) {
         error = `Lecture du fichier impossible : ${e instanceof Error ? e.message : String(e)}`;
@@ -305,7 +325,7 @@
         {#each $themeState.themes as t (t.id)}
           <li>
             <label class="theme" class:on={t.id === theme.id}>
-              <input type="radio" name="theme" value={t.id} checked={t.id === theme.id} on:change={() => attempt(() => selectTheme(t.id))} />
+              <input type="radio" name="theme" value={t.id} checked={t.id === theme.id} on:change={() => choose(t.id)} />
               <span class="theme-name">{t.name}</span>
               {#if t.builtin}<span class="tag">intégré</span>{/if}
             </label>

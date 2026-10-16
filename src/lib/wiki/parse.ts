@@ -21,6 +21,8 @@ const HEADING = /^ {0,3}#{1,6}(?:[ \t]+([^\n]*))?$/;
 const HEADING_CLOSE = /(?:^|[ \t]+)#+[ \t]*$/;
 const TOKEN = /[`\\[]/g;
 const LINE_START = /^([ \t]*)(?:([-+*]|\d{1,9}[.)])([ \t]+|$))?/;
+const RULE = /^([-*_])(?:[ \t]*\1){2,}[ \t\r]*$/;
+const SETEXT = /^=+[ \t\r]*$/;
 
 export function noteKey(s: string): string {
   return s
@@ -46,6 +48,11 @@ export function parseWikiInner(inner: string): WikiTarget | null {
   const alias = bar === -1 ? "" : text.slice(bar + 1).trim();
   if (target === "" && heading === "") return null;
   return { raw: inner, target, heading: heading || null, alias: alias || null };
+}
+
+/** Séparateur d'alias à ré-émettre pour ce raw : "\|" s'il était échappé (cellule de tableau GFM), sinon "|". */
+export function aliasBar(raw: string): string {
+  return raw[raw.indexOf("|") - 1] === "\\" ? "\\|" : "|";
 }
 
 interface Line {
@@ -82,6 +89,31 @@ function* lines(content: string): Generator<Line> {
 function column(s: string, col = 0): number {
   for (const ch of s) col = ch === "\t" ? col + 4 - (col % 4) : col + 1;
   return col;
+}
+
+interface Quote {
+  depth: number;
+  from: number; // début du contenu dans la ligne
+  at: number; // colonne de line[from]
+  content: number; // colonne où commence le contenu (le blanc après « > » compte pour 1, même pris dans une tabulation)
+}
+
+/** Marqueurs de citation « > » en tête de ligne. */
+function unquote(text: string): Quote {
+  const q: Quote = { depth: 0, from: 0, at: 0, content: 0 };
+  for (;;) {
+    let i = q.from;
+    while (i - q.from < 3 && text[i] === " ") i++;
+    if (text[i] !== ">") return q;
+    q.depth++;
+    q.at += i - q.from + 1;
+    q.from = i + 1;
+    if (text[q.from] === " ") {
+      q.from++;
+      q.at++;
+    }
+    q.content = q.at + (text[q.from] === "\t" ? 1 : 0);
+  }
 }
 
 /** Liens d'un bloc de paragraphe hors fences : saute code inline et échappements. */
@@ -139,22 +171,42 @@ export function scanWikiRefs(content: string): WikiRef[] {
   const blocks: { from: number; to: number }[] = [];
   let block: { from: number; to: number } | null = null;
   const items: number[] = []; // retrait du contenu des items de liste ouverts
+  let quoted = 0; // profondeur de citation de la ligne précédente
   for (const line of lines(content)) {
     starts.push(line.start);
-    if (line.fenced || BLANK.test(line.text)) {
+    if (line.fenced) {
       block = null;
       continue;
     }
-    const m = LINE_START.exec(line.text);
+    const q = unquote(line.text);
+    if (q.depth !== quoted) {
+      if (q.depth > quoted) block = null; // une citation ouvre un conteneur ; en sortir sans ligne vide = continuation paresseuse
+      items.length = 0;
+      quoted = q.depth;
+    }
+    const text = line.text.slice(q.from);
+    if (BLANK.test(text)) {
+      block = null;
+      continue;
+    }
+    const m = LINE_START.exec(text);
     const lead = m?.[1] ?? "";
-    const indent = column(lead);
-    if (!block || m?.[2] !== undefined) while (items.length > 0 && indent < items[items.length - 1]) items.pop();
+    const indent = column(lead, q.at) - q.content;
+    const body = text.slice(lead.length);
+    // Titre ATX, filet ou soulignement setext : ferment le paragraphe, le code indenté suivant reste du code.
+    const ends = HEADING.test(body) || RULE.test(body) || (block !== null && SETEXT.test(body));
+    if (!block || m?.[2] !== undefined || ends) while (items.length > 0 && indent < items[items.length - 1]) items.pop();
     const base = items.length > 0 ? items[items.length - 1] : 0;
     if (indent >= base + 4) {
       if (!block) continue; // bloc de code indenté (§1.1) : ne coupe pas un paragraphe
+    } else if (ends) {
+      if (HEADING.test(body)) blocks.push({ from: line.start, to: line.start + line.text.length });
+      block = null;
+      continue;
     } else if (m?.[2] !== undefined) {
-      const marker = column(lead + m[2]);
-      const gap = column(m[3], marker) - marker;
+      const at = column(lead + m[2], q.at);
+      const gap = column(m[3], at) - at;
+      const marker = at - q.content;
       items.push(gap === 0 || gap > 4 ? marker + 1 : marker + gap);
     }
     if (block) {
@@ -197,7 +249,7 @@ export function wikiDisplay(t: WikiTarget): string {
 export function wikiFromEdited(raw: string, visible: string): string {
   const t = parseWikiInner(raw);
   if (visible === "" || t === null || visible === wikiDisplay(t)) return raw;
-  const head = `${t.target}${t.heading ? `#${t.heading}` : ""}|`;
+  const head = `${t.target}${t.heading ? `#${t.heading}` : ""}${aliasBar(raw)}`;
   // L'inner refuse \n, [, ] et plus de INNER_MAX unités : texte visible assaini, sinon le lien serait perdu.
   let alias = visible.replace(/\r?\n|\r/g, " ").replace(/[[\]]/g, "");
   let end = Math.max(0, INNER_MAX - head.length);

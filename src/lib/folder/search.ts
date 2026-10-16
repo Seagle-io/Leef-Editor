@@ -167,6 +167,7 @@ export interface WorkerRequest {
 
 export const INTERRUPTED = "Recherche interrompue : expression trop coûteuse";
 const WORKER_TIMEOUT = 5000;
+const TIMEOUT_MAX = 2 ** 31 - 1; // setTimeout's ceiling: beyond it (Infinity included) the timer fires at once
 
 /**
  * The interface's search: searchNotes in a Web Worker, terminated on abort or after timeoutMs.
@@ -182,7 +183,8 @@ export function searchInWorker(
   return new Promise((resolve, reject) => {
     const worker = new Worker(new URL("./search.worker.ts", import.meta.url), { type: "module" });
     const interrupt = () => settle(() => reject(new Error(INTERRUPTED)));
-    const timer = setTimeout(interrupt, timeoutMs);
+    const delay = Number.isNaN(timeoutMs) ? WORKER_TIMEOUT : Math.min(Math.max(Math.floor(timeoutMs), 1), TIMEOUT_MAX);
+    const timer = setTimeout(interrupt, delay);
     function settle(done: () => void): void {
       clearTimeout(timer);
       signal.removeEventListener("abort", interrupt);

@@ -151,9 +151,8 @@ describe("paletteGroups (maquette 3)", () => {
   it("sans préfixe : Notes puis Commandes, 3 + 3 au plus", () => {
     const groups = paletteGroups("lien", src);
     expect(groups.map((g) => g.title)).toEqual(["Notes", "Commandes"]);
-    expect(groups[0].entries).toHaveLength(3);
+    expect(groups[0].entries.map((e) => e.kind)).toEqual(["note", "note", "note", "create"]);
     expect(groups[1].entries).toHaveLength(3);
-    expect(groups[0].entries.every((e) => e.kind === "note")).toBe(true);
     expect(groups[1].entries.every((e) => e.kind === "command")).toBe(true);
   });
   it("requête vide : 3 notes dans l'ordre, commandes récentes en tête", () => {
@@ -170,8 +169,20 @@ describe("paletteGroups (maquette 3)", () => {
   it("ni note ni commande : seule la ligne « créer »", () => {
     expect(paletteGroups("qqqq", src).map(ids)).toEqual([["+qqqq"]]);
   });
-  it("une note correspond : pas de ligne « créer »", () => {
-    expect(paletteGroups("feuille", src)[0].entries.map((e) => e.kind)).toEqual(["note"]);
+  it("nom exact d'une note (casse, espaces, NFC ignorés) : pas de ligne « créer »", () => {
+    for (const q of ["Feuille de route T4", "feuille de route t4", "  Feuille   de route T4 "]) {
+      expect(paletteGroups(q, src)[0].entries.map((e) => e.kind)).toEqual(["note"]);
+    }
+    const accents = { ...base, files: [{ path: "/n/idee.md", label: "Idée", detail: "" }] };
+    // é décomposé : le filtre flou ne retrouve pas la note, mais aucun doublon « Idée » n'est proposé
+    expect(paletteGroups("Ide\u0301e", accents)).toEqual([]);
+    const hostile = { ...base, files: [{ path: "/n/u.md", label: "Réunion 😀 مرحبا", detail: "" }, { path: "/n/s.md", label: "\uD800", detail: "" }] };
+    expect(paletteGroups("réunion 😀 مرحبا", hostile).flatMap(ids)).toEqual(["/n/u.md"]);
+    expect(paletteGroups("\uD800", hostile).flatMap(ids)).not.toContain("+\uD800");
+  });
+  it("notes floues sans nom exact : notes puis ligne « créer » (T023 V5)", () => {
+    expect(ids(paletteGroups("feuille", src)[0])).toEqual(["/n/feuille.md", "+feuille"]);
+    expect(ids(paletteGroups("Format", src)[0])).toEqual(["/n/format.md", "+Format"]);
   });
   it("> : un seul groupe Commandes, désactivée en fin, ≤ 50", () => {
     const groups = paletteGroups(">lien", src);

@@ -12,8 +12,17 @@ interface StoredSession {
  * Restores the tabs that were open last time. Falls back to the single-document
  * draft written by earlier versions, so an existing draft isn't lost.
  */
+function read(key: string): string | null {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    // Storage blocked: start with no restored tabs.
+    return null;
+  }
+}
+
 export function loadSession(): { docs: Doc[]; activeIndex: number } | null {
-  const raw = localStorage.getItem(SESSION_KEY);
+  const raw = read(SESSION_KEY);
   if (raw) {
     try {
       const session = JSON.parse(raw) as StoredSession;
@@ -28,7 +37,7 @@ export function loadSession(): { docs: Doc[]; activeIndex: number } | null {
     }
   }
 
-  const legacy = localStorage.getItem(STORAGE_KEY);
+  const legacy = read(STORAGE_KEY);
   return legacy === null ? null : { docs: [createDoc(legacy)], activeIndex: 0 };
 }
 
@@ -37,5 +46,9 @@ export function saveSession(docs: Doc[], activeIndex: number): void {
     docs: docs.map(({ path, content, dirty }) => ({ path, content, dirty })),
     activeIndex,
   };
-  localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+  try {
+    localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+  } catch {
+    // Storage full or blocked: the open tabs won't be restored next time.
+  }
 }

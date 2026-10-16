@@ -140,7 +140,7 @@ export function parseThemeFile(json: string): Result<ThemeFile, ThemeError> {
     const parsed = parseTheme(entry);
     if (!parsed.ok) return invalid(`themes[${i}].${parsed.error.field}`, `themes[${i}] : ${parsed.error.message}`);
     const name = parsed.value.name.toLowerCase();
-    if (themes.some((t) => t.name.toLowerCase() === name)) return invalid(`themes[${i}].name`, `themes[${i}].name : « ${parsed.value.name} » déjà utilisé.`);
+    if ([...BUILTIN_THEMES, ...themes].some((t) => t.name.toLowerCase() === name)) return invalid(`themes[${i}].name`, `themes[${i}].name : « ${parsed.value.name} » déjà utilisé.`);
     themes.push({ ...parsed.value, id, builtin: false });
   }
   return { ok: true, value: { version: 1, active: raw.active ?? AUTO_ID, themes } };
