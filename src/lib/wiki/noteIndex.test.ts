@@ -208,4 +208,14 @@ describe("NoteIndex hostile input", () => {
     expect(ix.suggest("x".repeat(1000))).toEqual([]);
     expect(ix.suggest("a", 0)).toEqual([]);
   });
+
+  it("a note over the scan bound stays listed and resolvable, without headings or links (T045)", () => {
+    const huge = "# T\n[[b]]\n" + "x".repeat(1_000_000);
+    const ix = NoteIndex.build([f("huge.md", huge), f("b.md"), f("c.md", "# C\n[[b]]")]);
+    expect(ix.get("/w/huge.md")?.content).toBe(huge);
+    expect(ix.resolve("huge", null)).toBe("/w/huge.md");
+    expect(ix.headings("/w/huge.md")).toEqual([]);
+    expect(ix.backlinks("/w/b.md").map((b) => b.rel)).toEqual(["c.md"]);
+    expect(ix.headings("/w/c.md")).toEqual(["C"]);
+  });
 });

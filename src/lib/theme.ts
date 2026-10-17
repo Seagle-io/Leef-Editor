@@ -28,7 +28,7 @@ export function dataThemeOf(id: ThemeId): "light" | "dark" {
   return DATA_THEME[id];
 }
 
-/** Built-in themes the toolbar names; leef-auto and user themes follow the scheme the store applied. */
+/** Built-in themes the toolbar names; a user theme is named after its parent (D11); leef-auto and its copies follow the scheme the store applied. */
 const BUILTIN_IDS: Record<string, ThemeId> = {
   "leef-light": "light",
   "leef-dark": "dark",
@@ -38,7 +38,7 @@ const BUILTIN_IDS: Record<string, ThemeId> = {
 
 /** Facade of the themes store, its only source: the system scheme and the stored choice are the store's. */
 export const theme: Readable<ThemeId> = derived([activeTheme, scheme], ([active, current]) =>
-  Object.hasOwn(BUILTIN_IDS, active.id) ? BUILTIN_IDS[active.id] : current,
+  Object.hasOwn(BUILTIN_IDS, active.parent) ? BUILTIN_IDS[active.parent] : current,
 );
 
 export function setTheme(id: ThemeId): void {

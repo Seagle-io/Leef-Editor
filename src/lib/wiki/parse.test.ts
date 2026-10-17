@@ -1,7 +1,18 @@
-import { describe, expect, it } from "vitest";
-import { noteKey, parseWikiInner, scanHeadings, scanWikiRefs, wikiDisplay, wikiFromEdited } from "./parse";
+import { describe, expect, it, vi } from "vitest";
+import MarkdownIt from "markdown-it";
+import footnote from "markdown-it-footnote";
+import admonition from "markdown-it-admonition";
+import { noteKey, parseWikiInner, scanHeadings, scanNote, scanWikiRefs, wikiDisplay, wikiFromEdited } from "./parse";
 
 const raws = (s: string) => scanWikiRefs(s).map((r) => r.raw);
+const bestMs = (s: string, runs = 3) =>
+  Math.min(
+    ...Array.from({ length: runs }, () => {
+      const start = performance.now();
+      scanWikiRefs(s);
+      return performance.now() - start;
+    }),
+  );
 
 describe("parseWikiInner", () => {
   it("parses target, heading, alias", () => {
@@ -209,6 +220,67 @@ describe("scanWikiRefs", () => {
   it("lone surrogates and U+FFFD do not break scanning", () => {
     expect(raws("\ud800 [[a]] �")).toEqual(["a"]);
   });
+
+  it("footnotes are read without markdown-it's inline phase, in linear time (T043 K1)", () => {
+    const inline = vi.spyOn(Object.getPrototypeOf(new MarkdownIt().inline), "parse");
+    expect(raws("x[^1]\n\n[^1]: [[a]]\n")).toEqual(["a"]);
+    expect(raws("[^2]: [^1]\n\n[^1]: [[a]]\n")).toEqual(["a"]); // appelée depuis une note non appelée, comme l'aperçu
+    expect(raws("x[^1]\n\n[^1]: [[a]]\n\n[^1]: [[b]]\n")).toEqual(["b"]); // la dernière définition est rendue
+    expect(inline).not.toHaveBeenCalled();
+    inline.mockRestore();
+    expect(bestMs("[^1]: x\n\n" + "^[".repeat(8_000))).toBeLessThan(5);
+    expect(bestMs("Texte [[a]]\n\n[^1]: x\n\n" + "^[x".repeat(5_334))).toBeLessThan(5);
+    expect(bestMs("[^1]: x\n\n" + "^[".repeat(500_000))).toBeLessThan(150);
+    expect(bestMs("[^1]: x\n\n" + "[[".repeat(500_000))).toBeLessThan(150);
+    expect(bestMs("[^1]: x\n\n" + "[^".repeat(500_000))).toBeLessThan(150);
+  });
+
+  it("a 1 MB table costs little more than markdown-it's own block parse (T043 K2)", () => {
+    // Mesures entrelacées, au meilleur de 7 : la charge de la machine pèse autant sur les deux (borne absolue : perf.t043).
+    const blocks = new MarkdownIt().use(footnote).use(admonition);
+    blocks.core.ruler.disable(["inline", "footnote_tail"]);
+    const table = "| a | b |\n|---|---|\n" + "| [[x]] | `y` |\n".repeat(62_500);
+    expect(scanWikiRefs(table)).toHaveLength(62_500);
+    let parse = Infinity;
+    let scan = Infinity;
+    for (let k = 0; k < 7; k++) {
+      const start = performance.now();
+      blocks.parse(table, {});
+      parse = Math.min(parse, performance.now() - start);
+      scan = Math.min(scan, bestMs(table, 1));
+    }
+    expect(scan / parse).toBeLessThan(1.5);
+  });
+
+  it("links are the preview's: table cells, link URL and title, autolinks, linkify, ^[ (T043 K4)", () => {
+    expect(raws("| t | u |\n|---|---|\n| [[a|z]] | x |\n")).toEqual([]);
+    expect(raws("| `x | [[a]] | y` |\n|---|---|---|\n")).toEqual(["a"]);
+    expect(raws("| t |\n|---|\n| x | [[b]] |\n")).toEqual([]); // colonne en trop : l'aperçu ne la rend pas
+    for (const s of ["[x]([[a]])", '[x](u "[[a]]")', "<http://x/[[a]]>", "http://x.com/[[a]]", "x <mailto:a@b.c/[[a]]>", "x^[[a]]", "[^[[a]]]", "![x [[a]]](u)"])
+      expect(raws(s), s).toEqual([]);
+    expect(raws("[ [[a]] ](u) ^[voir [[b]]] [x](u) [[c]]")).toEqual(["a", "b", "c"]);
+    expect(raws("www.x.com/[[a]] a@b.co/[[b]] ![^[ [[c]] ]](u)")).toEqual(["a", "b", "c"]);
+    expect(raws("[a [^1] b](u) [[c]]\n\n[^1]: n")).toEqual(["c"]);
+    for (const [s, line] of [
+      ["| t | u |\n|---|---|\n| x | [[Note\\|alias]] |\n", 2],
+      ["> | t | [[a]] |\n> |---|---|\n> | [[b]] | x |\n", 0],
+      ["- | t | [[a]] |\n  |---|---|\n  | [[b]] | x |\n", 0],
+      ["x\r\n\r\n| [[a\\|z]] | x |\r\n|---|---|\r\n", 2],
+      ["# T [[a]] ##\n> 😀 [[b]]  \n> [[c|C]] `[[d]]`\t\n!!! note \"[[e]]\"\n", 0],
+    ] as [string, number][]) {
+      const refs = scanWikiRefs(s);
+      expect(refs.length, s).toBeGreaterThan(0);
+      expect(refs[0].line, s).toBe(line);
+      for (const r of refs) expect(s.slice(r.from, r.to), s).toBe(`[[${r.raw}]]`);
+    }
+  });
+
+  it("hostile input: wrong types throw, limits, lone surrogates, RTL (T045)", () => {
+    for (const bad of [null, 42, {}, undefined]) expect(() => scanNote(bad as unknown as string)).toThrow();
+    expect(raws(`[[${"a".repeat(512)}]] [[${"b".repeat(513)}]]`)).toEqual(["a".repeat(512)]);
+    expect(raws("\u202e[[a]] [[e\u0301]] [[😀]] \ud800[[b\udc00x]]")).toEqual(["a", "e\u0301", "😀", "b\udc00x"]);
+    expect(scanNote("")).toEqual({ headings: [], refs: [] });
+  });
 });
 
 describe("scanHeadings", () => {
@@ -218,6 +290,19 @@ describe("scanHeadings", () => {
     expect(scanHeadings("")).toEqual([]);
     expect(scanHeadings("# C#")).toEqual(["C#"]);
     expect(scanHeadings("# 😀 Été\r\n")).toEqual(["😀 Été"]);
+  });
+
+  it("are the preview's titles: markdown-it heading tokens of the same parse (T043 K3)", () => {
+    expect(scanHeadings("- ```\n  code\n  ```\n\n# Titre\n")).toEqual(["Titre"]);
+    expect(scanHeadings("1. ```\n   x\n   ```\n# Après\n")).toEqual(["Après"]);
+    expect(scanHeadings("- # T")).toEqual(["T"]);
+    expect(scanHeadings("> # T")).toEqual(["T"]);
+    expect(scanHeadings("T\r# R\r")).toEqual(["R"]);
+    expect(scanHeadings("Setext\n===\n")).toEqual(["Setext"]);
+    expect(scanHeadings("    # code\n```\n# no\n```\n# [[a]] `b` ##\n")).toEqual(["[[a]] `b`"]);
+    expect(scanHeadings("[^1]: # Note\n\n# Corps\n")).toEqual(["Corps"]); // note non appelée : pas rendue
+    expect(scanHeadings("x[^1]\n\n[^1]: # Note\n\n# Corps\n")).toEqual(["Corps", "Note"]); // rendue en fin de document
+    expect(scanNote("# T\n[[a]]")).toEqual({ headings: ["T"], refs: scanWikiRefs("# T\n[[a]]") });
   });
 });
 

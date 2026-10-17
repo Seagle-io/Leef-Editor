@@ -94,7 +94,9 @@ function decodeFragment(fragment: string): string {
 
 /**
  * A manual `[aller](#app)` means the title « App », now `section-app`: without
- * this it would jump to the host element `#app` (T037 J8).
+ * this it would jump to the host element `#app` (T037 J8). Render time only:
+ * `data-href-source` keeps the written href, which the editable preview writes
+ * back, so the file never holds a Leef id (T044 K9).
  */
 function retargetRenamedAnchors(tokens: Token[], renamed: Map<string, string>): void {
   if (renamed.size === 0) return;
@@ -103,16 +105,30 @@ function retargetRenamedAnchors(tokens: Token[], renamed: Map<string, string>): 
       if (child.type !== "link_open") continue;
       const href = child.attrGet("href") ?? "";
       const id = href.startsWith("#") ? renamed.get(decodeFragment(href.slice(1))) : undefined;
-      if (id !== undefined) child.attrSet("href", md.normalizeLink(`#${id}`));
+      if (id === undefined) continue;
+      child.attrSet("href", md.normalizeLink(`#${id}`));
+      child.attrSet("data-href-source", href);
     }
   }
+}
+
+// Suffixe -n jusqu'à un id libre : « A », « A », « A-1 » → a, a-1, a-1-1 (jamais deux fois le même id).
+function freeId(base: string, used: Set<string>, counts: Map<string, number>): string {
+  let count = counts.get(base) ?? 0;
+  let id = base;
+  while (used.has(id)) id = `${base}-${++count}`;
+  counts.set(base, count);
+  used.add(id);
+  return id;
 }
 
 function collectHeadings(tokens: Token[]): TocItem[] {
   const items: TocItem[] = [];
   const used = new Set<string>();
   const counts = new Map<string, number>();
-  // Slug a title would have had → id it got instead, for the first such title.
+  // Id a title has in any other Markdown renderer (the one the user writes) → id it got here (T044 K10).
+  const naturalUsed = new Set<string>();
+  const naturalCounts = new Map<string, number>();
   const renamed = new Map<string, string>();
 
   for (let i = 0; i < tokens.length; i++) {
@@ -121,15 +137,10 @@ function collectHeadings(tokens: Token[]): TocItem[] {
 
     const level = Number(token.tag.slice(1));
     const text = tokens[i + 1]?.content ?? "";
-    // Suffixe -n jusqu'à un id libre : « A », « A », « A-1 » → a, a-1, a-1-1 (jamais deux fois le même id).
     const slug = slugify(text);
-    const base = clashesWithHost(slug) ? `section-${slug}` : slug;
-    let count = counts.get(base) ?? 0;
-    let id = base;
-    while (used.has(id)) id = `${base}-${++count}`;
-    counts.set(base, count);
-    used.add(id);
-    if (base !== slug && !renamed.has(slug)) renamed.set(slug, id);
+    const id = freeId(clashesWithHost(slug) ? `section-${slug}` : slug, used, counts);
+    const natural = freeId(slug, naturalUsed, naturalCounts);
+    if (natural !== id) renamed.set(natural, id);
 
     token.attrSet("id", id);
     items.push({ level, text, id });

@@ -567,6 +567,73 @@ describe("T042 theme.ts façade du store (D10)", () => {
     expect(get(t.theme)).toBe("light");
   });
 
+  it("K7 D11 Dracula / Solarized + police serif → copie de parent l'intégré : barre et éditeur suivent le parent, palette gardée, rechargement compris", async () => {
+    const bascule = systemScheme(false);
+    for (const [id, base] of [["dracula", "dark"], ["solarized", "light"]] as const) {
+      localStorage.clear();
+      const { t, store } = await launch();
+      t.setTheme(id);
+      (await import("../font")).setFont("georgia");
+      const copy = get(store.activeTheme);
+      expect(copy).toMatchObject({ builtin: false, parent: `leef-${id}`, base, contentFont: "serif" });
+      expect(copy.overrides).toEqual(BUILTIN_THEMES.find((b) => b.id === `leef-${id}`)?.overrides);
+      expect(get(t.theme)).toBe(id);
+      bascule(true);
+      bascule(false);
+      expect(get(t.theme)).toBe(id);
+      const again = await launch();
+      expect([get(again.store.activeTheme).parent, get(again.t.theme)]).toEqual([`leef-${id}`, id]);
+    }
+  });
+
+  it("K7 duplicateTheme d'un intégré → parent = intégré ; copie de copie → même parent ; leef-auto → selon le système", async () => {
+    const bascule = systemScheme(true);
+    const { t, store } = await launch();
+    const a = store.duplicateTheme("leef-dracula");
+    const b = store.duplicateTheme(a);
+    const themes = get(store.themeState).themes;
+    expect([a, b].map((id) => themes.find((x) => x.id === id)?.parent)).toEqual(["leef-dracula", "leef-dracula"]);
+    store.selectTheme(b);
+    expect(get(t.theme)).toBe("dracula");
+    store.selectTheme(store.duplicateTheme("leef-auto"));
+    expect([get(store.activeTheme).parent, get(t.theme)]).toEqual(["leef-auto", "dark"]);
+    bascule(false);
+    expect(get(t.theme)).toBe("light");
+    store.selectTheme(store.editTheme("leef-solarized", { size: 18 }));
+    expect([get(store.activeTheme).parent, get(t.theme)]).toEqual(["leef-solarized", "solarized"]);
+  });
+
+  it("K7 migration : thème utilisateur sans parent → déduit de base (light, dark, auto) ; barre comme avant", async () => {
+    const bascule = systemScheme(false);
+    const file = { version: 1, active: "user-00000002", themes: [
+      { id: "user-00000001", name: "A", base: "light" },
+      { id: "user-00000002", name: "B", base: "dark" },
+      { id: "user-00000003", name: "C", base: "auto" },
+      { id: "user-00000004", name: "D" },
+    ] };
+    localStorage.setItem("leef-themes-v1", JSON.stringify(file));
+    const { t, store } = await launch();
+    const parents = get(store.themeState).themes.filter((x) => !x.builtin).map((x) => x.parent);
+    expect(parents).toEqual(["leef-light", "leef-dark", "leef-auto", "leef-auto"]);
+    expect(get(t.theme)).toBe("dark");
+    store.selectTheme("user-00000003");
+    bascule(true);
+    expect(get(t.theme)).toBe("dark");
+    store.selectTheme("user-00000001");
+    expect(get(t.theme)).toBe("light");
+  });
+
+  it("K7 entrées hostiles : parent type faux, inconnu, casse, __proto__, utilisateur, 1 Mo, unicode → refus parent ; intégré connu accepté", () => {
+    for (const bad of [5, null, {}, [], true, "", "leef-DARK", "dracula", "__proto__", "constructor", "user-00000001", "x".repeat(1024 * 1024), "😀 שלום", "leef-darḱ", "\uD800"]) {
+      expect(parseTheme({ parent: bad }), String(bad).slice(0, 12)).toMatchObject({ ok: false, error: { code: "invalid-field", field: "parent" } });
+    }
+    for (const b of BUILTIN_THEMES) expect(parseTheme({ base: "light", parent: b.id })).toMatchObject({ ok: true, value: { parent: b.id } });
+    expect(parseTheme({})).toMatchObject({ ok: true, value: { parent: "leef-auto" } });
+    expect(parseThemeFile(JSON.stringify({ version: 1, active: "leef-auto", themes: [{ id: "user-00000001", name: "A", parent: "leef-nope" }] }))).toMatchObject({
+      ok: false, error: { field: "themes[0].parent" },
+    });
+  });
+
   it("setTheme, stockage plein → thème inchangé, erreur dans l'alerte (source theme) ; écriture réussie → effacée", async () => {
     systemScheme(false);
     const { t, store, draft } = await launch();

@@ -153,7 +153,7 @@ describe("renameRewrites: no link changes target (T022 F1 F2, decision D7)", () 
     const table = "| lien | n |\n|---|---|\n| [[Note\\|alias]] | 1 |\n| [[Note|x]] | [[Note#H\\|y]] |\n";
     const r = apply([f("Note.md"), f("t.md", table)], "/w/Note.md", "Neuf.md");
     expect(r.moved).toEqual([]);
-    expect(r.contents["/w/t.md"]).toBe("| lien | n |\n|---|---|\n| [[Neuf\\|alias]] | 1 |\n| [[Neuf|x]] | [[Neuf#H\\|y]] |\n");
+    expect(r.contents["/w/t.md"]).toBe("| lien | n |\n|---|---|\n| [[Neuf\\|alias]] | 1 |\n| [[Note|x]] | [[Note#H\\|y]] |\n"); // `|` non échappé coupe la cellule dans l'aperçu : ni lien ni 3e colonne
   });
 
   it("refuses a name no link can reach, rather than break links: C#, d1/F#, a]]b, too long (T029 G3)", () => {

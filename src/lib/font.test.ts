@@ -76,7 +76,7 @@ describe("font.ts", () => {
     expect(bouton?.textContent?.trim()).toBe("");
     bouton?.click();
     await Promise.resolve();
-    expect([...document.querySelectorAll(".choice-item")].map((b) => b.textContent?.trim())).toEqual(["Système", "Georgia", "Monospace"]);
+    expect([...document.querySelectorAll(".choice-item")].map((b) => b.textContent?.trim())).toEqual(["Système", "Serif", "Monospace"]);
     expect(document.querySelectorAll(".choice-item.selected")).toHaveLength(0);
     vue.$destroy();
   });
@@ -104,6 +104,75 @@ describe("font.ts", () => {
     expect(get(f.font)).toBe("jetbrains-mono");
     expect(get(s.activeTheme).contentFont).toBe("mono");
     expect(contentVar()).toBe("var(--leef-font-mono)");
+  });
+
+  it("K8 option « Serif » (D8) : id georgia conservé, pile = var(--leef-font-serif), préréglage serif ; aucune police non embarquée nommée", async () => {
+    const { f, s } = await reload();
+    const serif = f.fonts.find((o) => o.id === "georgia");
+    expect(serif?.label).toBe("Serif");
+    expect(serif?.stack).toBe("var(--leef-font-serif)");
+    expect(f.fonts.map((o) => o.label)).toEqual(["Système", "Serif", "Monospace"]);
+    expect(f.fonts.some((o) => /Georgia|Times|Inter\b|JetBrains|New York|Charter|Iowan/.test(o.label + o.stack))).toBe(false);
+    f.setFont("georgia");
+    expect(get(f.font)).toBe("georgia");
+    expect(get(s.activeTheme).contentFont).toBe("serif");
+    expect(contentVar()).toBe("var(--leef-font-serif)");
+  });
+
+  it("K5 panne puis réussite → alerte police effacée ; les autres sources gardées", async () => {
+    const { f, d } = await reload();
+    const setItem = Storage.prototype.setItem;
+    const spy = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("full", "QuotaExceededError");
+    });
+    f.setFont("georgia");
+    d.signalerErreur("onglets", "Enregistrement des onglets impossible", new DOMException("full", "QuotaExceededError"));
+    expect(get(d.storageErrors).police).toMatch(/^Police non enregistrée/);
+    spy.mockImplementation(function (this: Storage, k: string, v: string) {
+      return setItem.call(this, k, v);
+    });
+    f.setFont("georgia");
+    expect(get(f.font)).toBe("georgia");
+    expect(get(d.storageErrors).police).toBeNull();
+    expect(get(d.storageError)).toBeNull();
+    expect(get(d.storageErrors).onglets).toMatch(/onglets/);
+  });
+
+  it("K5 App : panne → ✕ → réussite → nouvelle panne → alerte police visible", async () => {
+    const { f } = await reload();
+    const { tick } = await import("svelte");
+    const { default: App } = await import("../App.svelte");
+    const target = document.createElement("div");
+    document.body.append(target);
+    const app = new App({ target });
+    const lignes = (): string[] => [...document.querySelectorAll(".storage-alert p")].map((p) => p.textContent ?? "");
+    const setItem = Storage.prototype.setItem;
+    let plein = false;
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (this: Storage, k: string, v: string) {
+      if (plein) throw new DOMException("full", "QuotaExceededError");
+      return setItem.call(this, k, v);
+    });
+    try {
+      plein = true;
+      f.setFont("georgia");
+      await tick();
+      const panne = lignes();
+      expect(panne).toEqual([expect.stringMatching(/^Police non enregistrée/)]);
+      (document.querySelector(".storage-alert-close") as HTMLButtonElement).click();
+      await tick();
+      expect(lignes()).toEqual([]);
+      plein = false;
+      f.setFont("georgia");
+      await tick();
+      expect(lignes()).toEqual([]);
+      plein = true;
+      f.setFont("jetbrains-mono");
+      await tick();
+      expect(lignes()).toEqual(panne);
+    } finally {
+      app.$destroy();
+      target.remove();
+    }
   });
 
   it("entrées hostiles : pile libre limite / unicode → custom ou refus du thème, jamais d'exception de font", async () => {

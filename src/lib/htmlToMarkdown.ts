@@ -41,6 +41,20 @@ async function getService(): Promise<TurndownServiceType> {
       },
     });
 
+    // A link retargeted at render time (`#app` → `#section-app`): write back the
+    // href of the source, never Leef's internal id (T044 K9). Escaping as
+    // Turndown's own inline links.
+    service.addRule("retargetedLink", {
+      filter: (node) => node.nodeName === "A" && Boolean(node.getAttribute("data-href-source")),
+      replacement: (content, node) => {
+        const el = node as HTMLElement;
+        const escaped = el.getAttribute("data-href-source")!.replace(/([<>()])/g, "\\$1");
+        const href = escaped.includes(" ") ? `<${escaped}>` : escaped;
+        const title = (el.getAttribute("title") ?? "").replace(/(\n+\s*)+/g, "\n").replace(/"/g, '\\"');
+        return `[${content}](${href}${title ? ` "${title}"` : ""})`;
+      },
+    });
+
     // Fenced code: keep the language recorded on the wrapper.
     service.addRule("codeBlock", {
       filter: (node) => node.nodeName === "DIV" && node.classList.contains("code-block"),

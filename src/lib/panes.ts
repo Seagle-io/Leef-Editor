@@ -16,6 +16,9 @@ const defaults: Record<PaneId, boolean> = {
   outline: true,
 };
 
+/** Lecture illisible : son message survit à l'écriture des défauts au démarrage, la première écriture demandée l'efface. */
+let unreadable = false;
+
 function load(): Record<PaneId, boolean> {
   let stored: unknown;
   try {
@@ -23,6 +26,7 @@ function load(): Record<PaneId, boolean> {
     stored = raw ? JSON.parse(raw) : null;
   } catch (e) {
     signalerErreur("volets", "Disposition des volets illisible : disposition par défaut", e);
+    unreadable = true;
     return { ...defaults };
   }
   const saved = typeof stored === "object" && stored !== null ? (stored as Record<string, unknown>) : {};
@@ -39,13 +43,15 @@ function load(): Record<PaneId, boolean> {
 export const panes = writable<Record<PaneId, boolean>>(load());
 
 panes.subscribe((value) => {
+  const keepUnreadable = unreadable;
+  unreadable = false;
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(value));
   } catch (e) {
     signalerErreur("volets", "Enregistrement de la disposition des volets impossible : disposition gardée pour cette session seulement", e);
     return;
   }
-  effacerErreur("volets");
+  if (!keepUnreadable) effacerErreur("volets");
 });
 
 export function togglePane(id: PaneId): void {

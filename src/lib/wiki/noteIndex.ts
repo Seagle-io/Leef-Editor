@@ -1,5 +1,5 @@
 import { fuzzyFilter } from "../fuzzy";
-import { noteKey, scanHeadings, scanWikiRefs, NOTE_FILE, type WikiRef } from "./parse";
+import { noteKey, scanNote, NOTE_FILE, type WikiRef } from "./parse";
 
 export interface NoteFile {
   path: string;
@@ -27,6 +27,8 @@ export interface Suggestion {
 }
 
 const CONTEXT_MAX = 160;
+// Au-delà (~150 ms de lecture), une note reste listée et résolue mais sans titres ni liens : le dossier s'indexe en temps borné.
+const SCAN_MAX = 1_000_000;
 const collator = new Intl.Collator("fr");
 
 const compareText = (a: string, b: string): number => collator.compare(a, b) || (a < b ? -1 : a > b ? 1 : 0);
@@ -145,12 +147,8 @@ export class NoteIndex {
   }
 
   private attach(f: NoteFile): NoteEntry {
-    const entry: NoteEntry = {
-      ...f,
-      key: noteKey(baseName(f.rel)),
-      headings: scanHeadings(f.content),
-      refs: scanWikiRefs(f.content),
-    };
+    const { headings, refs } = f.content.length > SCAN_MAX ? { headings: [], refs: [] } : scanNote(f.content);
+    const entry: NoteEntry = { ...f, key: noteKey(baseName(f.rel)), headings, refs };
     this.entries.set(f.path, entry);
     add(this.byKey, entry.key, f.path);
     const keys = new Set<string>();

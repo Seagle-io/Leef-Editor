@@ -201,6 +201,39 @@ describe("T033 session, écritures, volets", () => {
     expect(document.documentElement.dataset.theme).toBe("dark");
   });
 
+  it("K6 volets illisibles ({, __proto__, demi-paire, 1 Mo) → message gardé après l'écriture des défauts au démarrage, effacé par la première écriture demandée", async () => {
+    for (const bad of ["{", "__proto__", "\uD800", "x".repeat(1024 * 1024)]) {
+      localStorage.clear();
+      localStorage.setItem("gmd-panes", bad);
+      const v = await panes();
+      const d = await import("./draft");
+      expect(get(v.panes)).toEqual({ explorer: false, editor: true, preview: true, outline: true });
+      expect(get(d.storageErrors).volets, bad.slice(0, 10)).toMatch(/^Disposition des volets illisible : disposition par défaut \(SyntaxError/);
+      expect(localStorage.getItem("gmd-panes")).toBe('{"explorer":false,"editor":true,"preview":true,"outline":true}');
+      v.togglePane("explorer");
+      expect(get(d.storageErrors).volets).toBeNull();
+      expect(get(v.panes).explorer).toBe(true);
+    }
+    localStorage.setItem("gmd-panes", "{");
+    const v = await panes();
+    const d = await import("./draft");
+    v.showPane("outline");
+    expect(get(d.storageErrors).volets).toBeNull();
+  });
+
+  it("K6 volets lisibles, écriture réussie → aucun message ; panne → réussite → effacé (J5 inchangé)", async () => {
+    localStorage.setItem("gmd-panes", '{"outline":false}');
+    const v = await panes();
+    const d = await import("./draft");
+    expect(get(d.storageErrors).volets).toBeNull();
+    failStorage("setItem");
+    v.togglePane("explorer");
+    expect(get(d.storageErrors).volets).toMatch(/^Enregistrement de la disposition des volets impossible/);
+    vi.restoreAllMocks();
+    v.togglePane("explorer");
+    expect(get(d.storageErrors).volets).toBeNull();
+  });
+
   it("H9 volets : éditeur et aperçu tous deux false → éditeur montré ; types faux → défauts, aucune clé étrangère", async () => {
     localStorage.setItem("gmd-panes", '{"editor":false,"preview":false}');
     expect(get((await panes()).panes)).toEqual({ explorer: false, editor: true, preview: false, outline: true });

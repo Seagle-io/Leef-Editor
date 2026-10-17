@@ -11,6 +11,8 @@ const USER_ID = /^user-[0-9a-f]{8}$/;
 // Caractères de contrôle et demi-paires UTF-16 isolées (texte non UTF-8 valide).
 const BAD_CHARS = /[\p{Cc}\p{Cs}]/u;
 const FONT_FORBIDDEN = /[;{}<>]/;
+/** Thèmes enregistrés avant `parent` : l'intégré de même base. */
+const BASE_PARENT: Record<ThemeBase, string> = { light: "leef-light", dark: "leef-dark", auto: AUTO_ID };
 
 type Fields = Omit<Theme, "id" | "builtin">;
 
@@ -36,6 +38,10 @@ function isBase(v: unknown): v is ThemeBase {
 
 function isAccent(v: unknown): v is string {
   return typeof v === "string" && ((ACCENT_PRESETS as readonly string[]).includes(v) || HEX_COLOR.test(v));
+}
+
+function isParent(v: unknown): v is string {
+  return typeof v === "string" && BUILTIN_THEMES.some((t) => t.id === v);
 }
 
 function isFont(v: unknown): v is string {
@@ -86,6 +92,8 @@ export function parseTheme(u: unknown): Result<Omit<Theme, "id" | "builtin">, Th
   if (!name.ok) return name;
   const base = read(u, "base", DEFAULT.base, isBase, "base doit valoir light, dark ou auto.");
   if (!base.ok) return base;
+  const parent = read(u, "parent", BASE_PARENT[base.value], isParent, "parent : id d'un thème intégré attendu.");
+  if (!parent.ok) return parent;
   const accent = read(u, "accent", DEFAULT.accent, isAccent, "accent : pastille connue ou couleur #rrggbb.");
   if (!accent.ok) return accent;
   const contentFont = read(u, "contentFont", DEFAULT.contentFont, isFont, "contentFont : 1 à 200 caractères, sans ; { } < >.");
@@ -106,6 +114,7 @@ export function parseTheme(u: unknown): Result<Omit<Theme, "id" | "builtin">, Th
   const fields: Fields = {
     version: version.value,
     name: name.value.trim(),
+    parent: parent.value,
     base: base.value,
     accent: accent.value.startsWith("#") ? accent.value.toLowerCase() : accent.value,
     contentFont: contentFont.value,

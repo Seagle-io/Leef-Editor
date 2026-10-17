@@ -13,6 +13,7 @@ export interface Theme {
   id: string; // "leef-*" | "user-<8 hex>"
   name: string; // 1..60, unique casse ignorée
   builtin: boolean;
+  parent: string; // id de l'intégré d'origine (lui-même pour un intégré) ; absent du fichier → déduit de base
   base: ThemeBase;
   accent: AccentPreset | string; // #rrggbb
   contentFont: string; // "ui" | "serif" | "mono" (presets T002), sinon pile CSS
@@ -54,7 +55,7 @@ export const AUTO_ID = "leef-auto";
 
 function builtin(id: string, name: string, base: ThemeBase, patch: Partial<Theme> = {}): Theme {
   return {
-    version: 1, id, name, builtin: true, base, accent: "blue", contentFont: "ui", editorFont: "mono",
+    version: 1, id, name, builtin: true, parent: id, base, accent: "blue", contentFont: "ui", editorFont: "mono",
     size: 15, editorSize: 14, lineHeight: 1.6, lineWidth: 68, overrides: {}, ...patch,
   };
 }

@@ -8,7 +8,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { JSDOM } from "jsdom";
 import { strFromU8, unzipSync } from "fflate";
-import { generateTocMarkdown, parseMarkdown, renderDocument } from "./markdown";
+import { generateTocMarkdown, parseMarkdown, renderDocument, slugify } from "./markdown";
 import { htmlToMarkdown } from "./htmlToMarkdown";
 import { markdownToDocx } from "./office/docxWriter";
 
@@ -198,5 +198,83 @@ describe("manual links to a renamed title (T037 J8)", () => {
     const long = "ap ".repeat(30_000).trim().replace(/ /g, "-");
     expect(hrefs(`[a](#${long})\n\n# ${"ap ".repeat(30_000)}\n`)).toEqual([`#section-${long}`]);
     expect(hrefs(Array.from({ length: 2000 }, () => "[a](#app)").join(" ") + "\n\n# App\n").every((h) => h === "#section-app")).toBe(true);
+  });
+});
+
+describe("anchors are retargeted at render time only (T044 K9-K10)", () => {
+  const hrefs = (source: string): string[] => [...renderDocument(source).html.matchAll(/\bhref="([^"]*)"/g)].map((m) => m[1]);
+
+  /** Index of the title each `#` link lands on in the preview, or -1 (host element or nothing). */
+  function previewTargets(source: string): number[] {
+    const d = new JSDOM(`<div id="app">${renderDocument(source).html}</div>`).window.document;
+    const headings = [...d.querySelectorAll("h1, h2, h3, h4, h5, h6")];
+    return [...d.querySelectorAll("a[href^='#']")].map((a) => headings.indexOf(d.getElementById(decodeURIComponent(a.getAttribute("href")!.slice(1)))!));
+  }
+
+  /** Index of the bookmark each Word hyperlink points at (bookmarks follow the titles' order). */
+  async function wordTargets(source: string): Promise<number[]> {
+    const xml = strFromU8(unzipSync(await markdownToDocx(source, { title: "t" }))["word/document.xml"]);
+    const marks = [...xml.matchAll(/<w:bookmarkStart w:id="\d+" w:name="([^"]+)"\/>/g)].map((m) => m[1]);
+    return [...xml.matchAll(/<w:hyperlink w:anchor="([^"]+)"/g)].map((m) => marks.indexOf(m[1]));
+  }
+
+  it("keeps [aller](#app) in the source after an edit of the preview (K9)", async () => {
+    expect(await roundTrip("[aller](#app)\n\n# App\n")).toBe("[aller](#app)\n\n# App\n");
+    expect(await roundTrip("[aller](#app)\n\nparagraphe\n\n# App\n")).toBe("[aller](#app)\n\nparagraphe\n\n# App\n");
+    const note = await roundTrip("# App\n\nVoir [ici](#app), dans une note[^1].\n\n[^1]: Et [là](#app).\n");
+    expect(note).toContain("Voir [ici](#app)");
+    expect(note).toContain("[^1]: Et [là](#app).");
+    expect(await roundTrip('!!! note\n[aller](#app "le titre")\n!!!\n\n# App\n')).toBe('!!! note\n[aller](#app "le titre")\n!!!\n\n# App\n');
+    expect(await roundTrip("[aller](#fin)\n\n# Fin\n")).toBe("[aller](#fin)\n\n# Fin\n");
+  });
+
+  it("points #app-1 at the second « App » (K10)", async () => {
+    const source = "[x](#app-1)\n\n# App\n\n# App\n";
+    expect(previewTargets(source)).toEqual([1]);
+    expect(await wordTargets(source)).toEqual([1]);
+  });
+
+  it("points #section-app at « Section App », not at « App » (K10)", async () => {
+    const source = "[x](#section-app)\n\n# App\n\n# Section App\n";
+    expect(previewTargets(source)).toEqual([1]);
+    expect(await wordTargets(source)).toEqual([1]);
+    expect(await roundTrip(source)).toBe(source);
+  });
+
+  it("round-trips 50 documents with anchors, each link landing on its title", async () => {
+    const pool = ["App", "Fin", "Section App", "Palette input", "ap-x", "fn1", "Intro", "app", "Backlinks unlinked", "Theme name"];
+    for (let i = 0; i < 50; i++) {
+      const titles = [pool[i % 10], pool[(i * 3 + 1) % 10], pool[(i * 7 + 2) % 10], pool[i % 10], pool[(i + 5) % 10]];
+      // The ids any other Markdown renderer gives these titles: what the user writes.
+      const seen = new Set<string>();
+      const ids = titles.map((title) => {
+        let id = slugify(title);
+        for (let n = 1; seen.has(id); n++) id = `${slugify(title)}-${n}`;
+        seen.add(id);
+        return id;
+      });
+      const source = `${ids.map((id, k) => `[l${k}](#${id})`).join(" ")}\n\n${titles.map((t, k) => `${"#".repeat(1 + (k % 3))} ${t}`).join("\n\n")}\n`;
+      expect(await roundTrip(source), source).toBe(source);
+      expect(previewTargets(source), source).toEqual([0, 1, 2, 3, 4]);
+      expect(await wordTargets(source), source).toEqual([0, 1, 2, 3, 4]);
+    }
+  });
+
+  it("hostile links: empty, very long, non-UTF-8, unicode, limits, wrong types", async () => {
+    expect(await htmlToMarkdown("")).toBe("\n");
+    expect(await roundTrip("[a](#)\n\n# App\n")).toBe("[a](#)\n\n# App\n");
+    const many = `${Array.from({ length: 2000 }, () => "[a](#app)").join(" ")}\n\n# App\n`;
+    expect(hrefs(many).every((h) => h === "#section-app")).toBe(true);
+    expect(await roundTrip(many)).toBe(many);
+    const long = "ap ".repeat(30_000).trim().replace(/ /g, "-");
+    expect(await roundTrip(`[a](#${long})\n\n# ${long}\n`)).toBe(`[a](#${long})\n\n# ${long}\n`);
+    expect(await roundTrip("[d](#%E0)\n\n# App\n")).toBe("[d](#%E0)\n\n# App\n");
+    for (const source of ["[a](#ap-%C3%A9t%C3%A9)\n\n# ap-été\n", "[a](#%D9%85%D8%B1%D8%AD%D8%A8%D8%A7-app)\n\n# مرحبا app\n", "[a](#app)\n\n# a\u0301pp\n", "[a](#-app)\n\n# 😀 app\n"]) {
+      expect(await roundTrip(source)).toBe(source);
+      expect(previewTargets(source)).toEqual([0]);
+    }
+    expect(hrefs("[a](#app-0) [b](#app-2)\n\n# App\n\n# App\n")).toEqual(["#app-0", "#app-2"]);
+    expect(previewTargets("[a](#app-0) [b](#app-2)\n\n# App\n\n# App\n")).toEqual([-1, -1]);
+    for (const wrong of [42, { a: 1 }, null]) await expect(htmlToMarkdown(wrong as unknown as string)).rejects.toThrow();
   });
 });
