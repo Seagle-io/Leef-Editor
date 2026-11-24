@@ -31,9 +31,16 @@ describe("markdown round trip", () => {
 
   it("keeps lists and quotes", async () => {
     const result = await roundTrip("- un\n- deux\n\n1. a\n2. b\n\n> une citation\n");
-    expect(result).toContain("-   un");
-    expect(result).toContain("1.  a");
+    expect(result).toContain("- un");
+    expect(result).toContain("1. a");
     expect(result).toContain("> une citation");
+    expect(result).not.toContain("-   un");
+    expect(result).not.toContain("1.  a");
+  });
+
+  it("keeps nested lists as written", async () => {
+    const source = "- un\n  - sous un\n  - sous deux\n- deux\n\n1. a\n   1. a1\n2. b\n";
+    expect(await roundTrip(source)).toBe(source);
   });
 
   it("keeps a fenced code block with its language", async () => {
@@ -66,6 +73,22 @@ describe("markdown round trip", () => {
     expect(result).toContain("Après");
   });
 
+  it("keeps a page break made non-editable by the preview", async () => {
+    const source = "Avant\n\n\\pagebreak\n\nAprès\n";
+    const { html } = renderDocument(source);
+    const locked = html.replace('class="page-break"', 'class="page-break" contenteditable="false"');
+    expect(locked).not.toBe(html);
+    expect(await htmlToMarkdown(locked)).toBe(await roundTrip(source));
+  });
+
+  it("ignores the sheet margins laid on blocks in page mode", async () => {
+    const source = "# Titre\n\nUn paragraphe.\n\n- un\n- deux\n\nLa fin.\n";
+    const { html } = renderDocument(source);
+    const pushed = html.replace(/<(p|h1|ul|li)\b/g, '<$1 style="margin-top: 300px;" data-leef-push=""');
+    expect(pushed).not.toBe(html);
+    expect(await htmlToMarkdown(pushed)).toBe(await roundTrip(source));
+  });
+
   it("keeps footnote references and definitions", async () => {
     const result = await roundTrip("Une affirmation[^1].\n\n[^1]: La source.\n");
     expect(result).toContain("[^1]");
@@ -83,6 +106,32 @@ describe("markdown round trip", () => {
     const once = await roundTrip(source);
     const twice = await roundTrip(once);
     expect(twice).toBe(once);
+  });
+
+  it("is stable on nested lists, page breaks and admonitions", async () => {
+    const sources = [
+      "- un\n  - sous un\n    - sous sous un\n  - sous deux\n- deux\n\n1. a\n   - puce\n2. b\n",
+      "Avant\n\n\\pagebreak\n\nAprès\n",
+      '!!! note "Titre"\n- une puce\n- deux\n!!!\n\nAprès.\n',
+      "- un\n\n\\pagebreak\n\n- deux\n",
+    ];
+    for (const source of sources) {
+      const once = await roundTrip(source);
+      expect(await roundTrip(once), source).toBe(once);
+    }
+  });
+});
+
+describe("code block line breaks (T012)", () => {
+  it("reads a <br> inside the code as a newline", async () => {
+    const md = await htmlToMarkdown('<div class="code-block"><pre><code>a<br>b</code></pre></div>');
+    expect(md).toContain("```");
+    expect(md).toContain("a\nb");
+  });
+
+  it("is idempotent on a multi-line code block", async () => {
+    const once = await roundTrip("```js\nconst a = 1;\nconst b = 2;\n```\n");
+    expect(await roundTrip(once)).toBe(once);
   });
 });
 

@@ -74,7 +74,7 @@ function initialFormat(): PageFormatId {
 }
 
 export const pageFormat = writable<PageFormatId>(initialFormat());
-export const pageMode = writable<boolean>(read(MODE_KEY) === "on");
+export const pageMode = writable<boolean>(read(MODE_KEY) !== "off");
 
 /**
  * `@page { size: ... }` can't read a custom property, so the print page size

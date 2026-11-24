@@ -47,12 +47,12 @@ describe.each<Failure>(["localStorage", "getItem", "setItem"])("V1 stockage indi
   it("page.ts", async () => {
     failStorage(failure);
     const m = await page();
-    expect([get(m.pageFormat), get(m.pageMode), get(m.pageHeader), get(m.pageFooter)]).toEqual(["a4", false, "", m.DEFAULT_FOOTER]);
+    expect([get(m.pageFormat), get(m.pageMode), get(m.pageHeader), get(m.pageFooter)]).toEqual(["a4", true, "", m.DEFAULT_FOOTER]);
     m.setPageFormat("letter");
     m.togglePageMode();
     m.pageHeader.set("Titre");
     m.pageFooter.set("{page}");
-    expect([get(m.pageFormat), get(m.pageMode), get(m.pageHeader), get(m.pageFooter)]).toEqual(["letter", true, "Titre", "{page}"]);
+    expect([get(m.pageFormat), get(m.pageMode), get(m.pageHeader), get(m.pageFooter)]).toEqual(["letter", false, "Titre", "{page}"]);
     expect(document.documentElement.style.getPropertyValue("--page-width")).toBe("215.9mm");
   });
 
@@ -123,13 +123,25 @@ describe("entrées hostiles", () => {
     }
   });
 
+  it("mode page : rien d'enregistré ⇒ actif en a4 ; \"off\" ⇒ inactif ; \"on\" ⇒ actif", async () => {
+    const lire = async (): Promise<[string, boolean]> => {
+      const p = await page();
+      return [get(p.pageFormat), get(p.pageMode)];
+    };
+    expect(await lire()).toEqual(["a4", true]);
+    localStorage.setItem("gmd-page-mode", "off");
+    expect((await lire())[1]).toBe(false);
+    localStorage.setItem("gmd-page-mode", "on");
+    expect((await lire())[1]).toBe(true);
+  });
+
   it("valeurs inconnues ou limites (vide, casse, __proto__, 1 Mo, demi-paire) → défauts (thème, format, mode, aperçu)", async () => {
     for (const bad of ["", "A4", "__proto__", "constructor", "x".repeat(1024 * 1024), "\uD800"]) {
       localStorage.clear();
       for (const key of ["gmd-theme", "gmd-page-format", "gmd-page-mode", "gmd-preview-editable"]) localStorage.setItem(key, bad);
       expect(get((await theme()).theme)).toBe("light");
       const p = await page();
-      expect([get(p.pageFormat), get(p.pageMode)]).toEqual(["a4", false]);
+      expect([get(p.pageFormat), get(p.pageMode)]).toEqual(["a4", true]);
       expect(get((await previewEdit()).previewEditable)).toBe(true);
     }
   });

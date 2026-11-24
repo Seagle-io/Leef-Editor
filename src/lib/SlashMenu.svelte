@@ -53,7 +53,7 @@
     flex-direction: column;
     background: var(--bg);
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: var(--leef-radius-lg);
     box-shadow: 0 6px 18px rgba(0, 0, 0, 0.22);
   }
   .slash-item {
@@ -62,7 +62,7 @@
     gap: 0.45rem;
     padding: 0.35rem 0.5rem;
     border: none;
-    border-radius: 4px;
+    border-radius: var(--leef-radius-md);
     background: none;
     color: var(--fg);
     font-size: 0.85rem;

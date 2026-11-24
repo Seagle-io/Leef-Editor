@@ -50,7 +50,7 @@
     width: 100%;
     padding: 0.2rem 0.4rem 0.2rem calc(0.3rem + var(--depth) * 0.7rem);
     border: none;
-    border-radius: 4px;
+    border-radius: var(--leef-radius-md);
     background: none;
     color: var(--fg);
     font-size: 0.8rem;
@@ -58,10 +58,10 @@
     cursor: pointer;
   }
   .row:hover {
-    background: var(--button-hover-bg);
+    background: var(--leef-bg-hover);
   }
   .row.current {
-    background: var(--button-hover-bg);
+    background: var(--leef-bg-pressed);
     color: var(--toolbar-fg);
     font-weight: 600;
   }
@@ -73,5 +73,9 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .row:focus-visible {
+    outline: 2px solid var(--leef-accent);
+    outline-offset: -2px;
   }
 </style>

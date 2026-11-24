@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { createEventDispatcher, tick } from "svelte";
+  import { createEventDispatcher, onMount, tick } from "svelte";
   import Icon from "./icons/Icon.svelte";
   import { htmlToMarkdown } from "./htmlToMarkdown";
   import SlashMenu from "./SlashMenu.svelte";
@@ -13,15 +13,18 @@
     PAGE_MARGIN_MM,
     type PageFormatId,
   } from "./page";
+  import { planSheets, type MeasuredUnit, type SheetGeometry } from "./sheetLayout";
 
   export let html = "";
+  /** The markdown `html` was rendered from. */
+  export let source = "";
   export let dark = false;
   export let paged = false;
   export let formatId: PageFormatId = "a4";
   export let header = "";
   export let footer = "";
   export let title = "";
-  /** Unlocked preview: the rendered output is edited directly (continuous mode only). */
+  /** Unlocked preview: the rendered output is edited directly, in both modes. */
   export let editable = false;
 
   const dispatch = createEventDispatcher<{ edit: string }>();
@@ -30,9 +33,37 @@
   let flow: HTMLDivElement;
   let pagesEl: HTMLDivElement;
   let mermaidTheme: string | null = null;
+  let containerWidth = 0;
+
+  // Display zoom: a sheet wider than the pane shrinks to fit instead of
+  // overflowing on both sides. Printing ignores it (see @media print).
+  const PAGE_FIT_GUTTER_PX = 32;
+  $: scale = Math.min(
+    1,
+    containerWidth > 0
+      ? (containerWidth - PAGE_FIT_GUTTER_PX) / mmToPx(getPageFormat(formatId).width)
+      : 1,
+  );
+
+  onMount(() => {
+    const observer = new ResizeObserver(() => {
+      containerWidth = container.clientWidth;
+    });
+    observer.observe(container);
+    // Images and Mermaid diagrams change the flow's height after the fact.
+    const flowObserver = new ResizeObserver(scheduleLayout);
+    flowObserver.observe(flow);
+    return () => {
+      observer.disconnect();
+      flowObserver.disconnect();
+      cancelAnimationFrame(layoutFrame);
+    };
+  });
 
   export function setScrollRatio(ratio: number): void {
     if (!container) return;
+    // Typing in the preview: following the editor's scroll would yank the page away.
+    if (container.contains(document.activeElement)) return;
     const max = container.scrollHeight - container.clientHeight;
     container.scrollTop = max > 0 ? ratio * max : 0;
   }
@@ -61,33 +92,53 @@
   // code block) stays whole and gets a page to itself.
   const SPLITTABLE = new Set(["UL", "OL", "DIV", "BLOCKQUOTE", "SECTION", "DL"]);
 
-  function outerHeight(el: HTMLElement): number {
-    const style = getComputedStyle(el);
-    return el.offsetHeight + parseFloat(style.marginTop) + parseFloat(style.marginBottom);
-  }
-
-  /**
-   * Deals the rendered blocks out into fixed-height page boxes. Nodes are
-   * *moved* (not cloned) out of the offscreen flow container, so the copy
-   * buttons and the Mermaid SVGs keep working. `flow` has exactly the width of
-   * a page's text area, so the heights measured there stay valid once moved.
-   */
-  function paginate(): void {
-    if (!flow || !pagesEl) return;
-
+  /** Text height, sheet height and text offset of one sheet for the current format and bands. */
+  function sheetGeometry(): SheetGeometry {
     const format = getPageFormat(formatId);
     const hasHeader = header.trim() !== "";
     const hasFooter = footer.trim() !== "";
-    const contentPx = mmToPx(
-      format.height -
-        2 * PAGE_MARGIN_MM -
-        (hasHeader ? PAGE_HEADER_MM : 0) -
-        (hasFooter ? PAGE_FOOTER_MM : 0),
-    );
+    return {
+      contentPx: mmToPx(
+        format.height -
+          2 * PAGE_MARGIN_MM -
+          (hasHeader ? PAGE_HEADER_MM : 0) -
+          (hasFooter ? PAGE_FOOTER_MM : 0),
+      ),
+      sheetPx: mmToPx(format.height),
+      bodyOffsetPx: mmToPx(PAGE_MARGIN_MM + (hasHeader ? PAGE_HEADER_MM : 0)),
+    };
+  }
+
+  /**
+   * Printing only: deals the blocks of `source` — a copy of the flow, laid out
+   * at the width of a page's text area — out into fixed-height page boxes.
+   * Nodes are *moved* out of `source`, measured before they leave it.
+   */
+  function paginate(source: HTMLElement): void {
+    if (!pagesEl) return;
+
+    const hasHeader = header.trim() !== "";
+    const hasFooter = footer.trim() !== "";
+    const { contentPx } = sheetGeometry();
     pagesEl.replaceChildren();
 
     let body!: HTMLElement;
     let used = 0;
+    // Margin under the last block placed: it collapses with the next block's
+    // top margin and needs no room at the foot of a page — as on screen
+    // (planSheets), so the printed pages break where the sheets do.
+    let trailing = 0;
+
+    /** Bottom of `el`'s border box if it went next on the current page. */
+    function bottomIfPlaced(el: HTMLElement): number {
+      return (used > 0 ? used + Math.max(trailing, parseFloat(getComputedStyle(el).marginTop)) : 0) + el.offsetHeight;
+    }
+
+    function append(parent: HTMLElement, el: HTMLElement): void {
+      used = bottomIfPlaced(el);
+      trailing = parseFloat(getComputedStyle(el).marginBottom);
+      parent.appendChild(el);
+    }
 
     /** A header / footer band, split into left / centre / right on `|`. */
     function band(className: string): HTMLElement {
@@ -108,13 +159,10 @@
     }
 
     function place(node: HTMLElement): void {
-      const height = outerHeight(node);
+      if (used > 0 && bottomIfPlaced(node) > contentPx) newPage();
 
-      if (used > 0 && used + height > contentPx) newPage();
-
-      if (height <= contentPx) {
-        body.appendChild(node);
-        used += height;
+      if (node.offsetHeight <= contentPx) {
+        append(body, node);
         return;
       }
 
@@ -131,21 +179,19 @@
       let chunk = node.cloneNode(false) as HTMLElement;
       body.appendChild(chunk);
       for (const child of children) {
-        const childHeight = outerHeight(child);
-        if (used > 0 && used + childHeight > contentPx) {
+        if (used > 0 && bottomIfPlaced(child) > contentPx) {
           newPage();
           chunk = node.cloneNode(false) as HTMLElement;
           if (chunk.tagName === "OL") chunk.setAttribute("start", String(index + 1));
           body.appendChild(chunk);
         }
-        chunk.appendChild(child);
-        used += childHeight;
+        append(chunk, child);
         index += 1;
       }
     }
 
     newPage();
-    for (const node of Array.from(flow.children) as HTMLElement[]) {
+    for (const node of Array.from(source.children) as HTMLElement[]) {
       if (node.classList.contains("page-break")) {
         // Manual `\pagebreak`: the marker itself isn't rendered.
         node.remove();
@@ -163,59 +209,246 @@
     });
   }
 
-  function fillBand(el: Element | null, template: string, context: Parameters<typeof fillTemplate>[1]): void {
-    if (!el) return;
+  /** Left / centre / right texts of a band: one part is centred, two are pushed to the edges, three fill all slots. */
+  function bandSlots(template: string, context: Parameters<typeof fillTemplate>[1]): string[] {
     const parts = fillTemplate(template, context).split("|");
-    // One part is centred, two are pushed to the edges, three fill all slots.
     const slots =
       parts.length === 1 ? ["", parts[0], ""] : parts.length === 2 ? [parts[0], "", parts[1]] : parts.slice(0, 3);
+    return [0, 1, 2].map((i) => (slots[i] ?? "").trim());
+  }
+
+  function fillBand(el: Element | null, template: string, context: Parameters<typeof fillTemplate>[1]): void {
+    if (!el) return;
+    const slots = bandSlots(template, context);
     Array.from(el.children).forEach((span, i) => {
-      span.textContent = (slots[i] ?? "").trim();
+      span.textContent = slots[i];
     });
   }
 
-  // The flow container is filled by hand rather than with `{@html}`: in page
-  // mode its children are moved into the page boxes, which would leave Svelte's
-  // view of that subtree out of sync.
+  // --- Page mode on screen: sheets painted behind the flow -----------------
+
+  interface SheetView {
+    top: number;
+    height: number;
+    header: string[] | null;
+    footer: string[] | null;
+  }
+
+  let sheets: SheetView[] = [];
+  let layoutFrame = 0;
+  $: lastSheet = sheets[sheets.length - 1];
+
+  function scheduleLayout(): void {
+    cancelAnimationFrame(layoutFrame);
+    layoutFrame = requestAnimationFrame(() => {
+      if (paged) layoutSheets();
+    });
+  }
+
+  /** Top of `el` relative to the flow, whatever positioned blocks lie in between. */
+  function offsetInFlow(el: HTMLElement): number {
+    let top = 0;
+    for (let node: HTMLElement | null = el; node && node !== flow; node = node.offsetParent as HTMLElement | null) {
+      top += node.offsetTop;
+    }
+    return top;
+  }
+
+  /** Drops the sheet margins under `root` — Chrome also copies them onto a block split with Enter. */
+  function clearPushes(root: HTMLElement): void {
+    for (const el of root.querySelectorAll<HTMLElement>("[data-leef-push]")) {
+      el.style.marginTop = "";
+      el.removeAttribute("data-leef-push");
+      if (!el.getAttribute("style")) el.removeAttribute("style");
+    }
+  }
+
+  function isUnbreakable(el: HTMLElement): boolean {
+    return !SPLITTABLE.has(el.tagName) || el.classList.contains("mermaid");
+  }
+
+  /**
+   * The flow's blocks as layout units. A block taller than a sheet that can be
+   * dealt out (as in `paginate`) gives its children instead, one level deep;
+   * its first child moves the block itself.
+   */
+  function measureUnits(contentPx: number): { units: MeasuredUnit[]; targets: HTMLElement[] } {
+    const units: MeasuredUnit[] = [];
+    const targets: HTMLElement[] = [];
+    let prevBottom = parseFloat(getComputedStyle(flow).paddingTop);
+    let forcedBreak = false;
+    for (const node of Array.from(flow.children) as HTMLElement[]) {
+      if (node.classList.contains("page-break")) {
+        forcedBreak = true;
+        continue;
+      }
+      const top = offsetInFlow(node);
+      const children = Array.from(node.children) as HTMLElement[];
+      if (node.offsetHeight > contentPx && SPLITTABLE.has(node.tagName) && children.length >= 2) {
+        const parent = targets.push(node) - 1;
+        children.forEach((child, i) => {
+          const childTop = offsetInFlow(child);
+          const previous = children[i - 1];
+          units.push({
+            top: childTop,
+            height: child.offsetHeight,
+            // The margin of a first child goes on its parent, which sits that much higher.
+            prevBottom: i === 0 ? prevBottom + childTop - top : offsetInFlow(previous) + previous.offsetHeight,
+            forcedBreak: i === 0 && forcedBreak,
+            target: i === 0 ? parent : targets.push(child) - 1,
+            unbreakable: isUnbreakable(child),
+          });
+        });
+      } else {
+        units.push({ top, height: node.offsetHeight, prevBottom, forcedBreak, target: targets.push(node) - 1, unbreakable: isUnbreakable(node) });
+      }
+      forcedBreak = false;
+      prevBottom = top + node.offsetHeight;
+    }
+    return { units, targets };
+  }
+
+  /** Index of the sheet a flow position falls on. */
+  function sheetAt(list: SheetView[], y: number): number {
+    let index = 0;
+    list.forEach((sheet, i) => {
+      if (sheet.top <= y) index = i;
+    });
+    return index;
+  }
+
+  /**
+   * Starts each sheet's first block on its sheet with a `margin-top` and paints
+   * the sheets behind the flow. Only style / data attributes are written: no
+   * content node is ever added, removed or moved, so the caret, the native
+   * undo and the "/" menu are left alone.
+   */
+  function layoutSheets(): void {
+    if (!flow) return;
+    const caret = caretBlock();
+    const caretSheet = caret ? sheetAt(sheets, caret.offsetTop) : -1;
+
+    const geometry = sheetGeometry();
+    clearPushes(flow);
+    flow.style.paddingTop = `${geometry.bodyOffsetPx}px`;
+    const { units, targets } = measureUnits(geometry.contentPx);
+    const plan = planSheets(units, geometry);
+    for (const push of plan.pushes) {
+      targets[push.target].style.marginTop = `${push.marginTop}px`;
+      targets[push.target].setAttribute("data-leef-push", "");
+    }
+
+    const hasHeader = header.trim() !== "";
+    const hasFooter = footer.trim() !== "";
+    sheets = plan.sheets.map((sheet, index) => {
+      const context = { page: index + 1, pages: plan.sheets.length, title };
+      return {
+        top: sheet.contentTop - geometry.bodyOffsetPx,
+        height: sheet.height,
+        header: hasHeader ? bandSlots(header, context) : null,
+        footer: hasFooter ? bandSlots(footer, context) : null,
+      };
+    });
+
+    // Enter at the bottom of a sheet sent the caret's block to the next one: follow it.
+    if (caret && sheetAt(sheets, caret.offsetTop) !== caretSheet) caret.scrollIntoView({ block: "nearest" });
+  }
+
+  function clearSheets(): void {
+    clearPushes(flow);
+    flow.style.paddingTop = "";
+    sheets = [];
+  }
+
+  // --- Rendering ------------------------------------------------------------
+
+  /** The markdown the flow's DOM stands for: the last one rendered, or the last edit sent. */
+  let renderedSource: string | null = null;
+
+  function layout(): void {
+    if (paged) layoutSheets();
+    else clearSheets();
+  }
+
+  // The flow container is filled by hand rather than with `{@html}`: it is
+  // edited in place, and a re-render would throw away the caret mid-typing.
   async function update(): Promise<void> {
     await tick();
     if (!flow) return;
-    // The html we're being handed is the round-trip of an edit made *in* the
-    // preview: re-rendering it would throw away the caret mid-typing.
-    if (selfEdited) {
-      selfEdited = false;
+    // Same markdown as the flow already shows (typically the echo of an edit
+    // made here): only the sheets may need laying out again.
+    if (source === renderedSource) {
+      layout();
       return;
     }
+    const scrollTop = container.scrollTop;
+    clearTimeout(editHandle);
+    editHandle = undefined;
     flow.innerHTML = html;
+    renderedSource = source;
+    // Edited from the markdown only.
+    for (const el of flow.querySelectorAll(".page-break, pre.mermaid")) el.setAttribute("contenteditable", "false");
     await renderMermaidDiagrams();
-    if (paged) paginate();
+    layout();
+    // A change made on the markdown side leaves the reader where they were.
+    await tick();
+    container.scrollTop = scrollTop;
   }
 
   // Re-runs on content, page mode, format and header / footer changes.
-  $: html, paged, formatId, header, footer, title, update();
+  $: source, html, paged, formatId, header, footer, title, update();
 
   // --- Editing the rendered output -----------------------------------------
 
-  let selfEdited = false;
   let editHandle: ReturnType<typeof setTimeout> | undefined;
+  let composing = false;
 
-  // Page mode moves nodes into the page boxes, so editing only makes sense in
-  // continuous mode.
-  $: canEdit = editable && !paged;
+  $: canEdit = editable;
+
+  async function sendEdit(): Promise<void> {
+    editHandle = undefined;
+    const rendered = renderedSource;
+    try {
+      const markdown = await htmlToMarkdown(flow.innerHTML);
+      // Re-rendered from the markdown side meanwhile (another tab): this DOM is gone.
+      if (renderedSource !== rendered) return;
+      renderedSource = markdown;
+      dispatch("edit", markdown);
+    } catch (err) {
+      console.error("Impossible de convertir le rendu en Markdown :", err);
+    }
+  }
 
   function handleInput(): void {
-    if (!canEdit) return;
+    if (!canEdit || composing) return;
     syncSlashMenu();
+    scheduleLayout();
     clearTimeout(editHandle);
-    editHandle = setTimeout(async () => {
-      try {
-        const markdown = await htmlToMarkdown(flow.innerHTML);
-        selfEdited = true;
-        dispatch("edit", markdown);
-      } catch (err) {
-        console.error("Impossible de convertir le rendu en Markdown :", err);
-      }
-    }, 400);
+    editHandle = setTimeout(sendEdit, 400);
+  }
+
+  function handleCompositionEnd(): void {
+    composing = false;
+    handleInput();
+  }
+
+  /** Leaving the preview: send the pending edit now rather than in 400 ms. */
+  function handleFocusOut(): void {
+    if (editHandle === undefined) return;
+    clearTimeout(editHandle);
+    sendEdit();
+  }
+
+  // --- Printing -------------------------------------------------------------
+
+  /** Page mode prints real page boxes, dealt out from a copy so the edited flow is never touched. */
+  function handleBeforePrint(): void {
+    if (!paged) return;
+    const copy = flow.cloneNode(true) as HTMLElement;
+    clearPushes(copy);
+    container.appendChild(copy);
+    paginate(copy);
+    copy.remove();
   }
 
   // --- Notion-style "/" insert menu ----------------------------------------
@@ -284,7 +517,10 @@
   }
 
   function handleFlowKeydown(event: KeyboardEvent): void {
-    if (!slash || slashMatches.length === 0) return;
+    if (!slash || slashMatches.length === 0) {
+      leaveBlock(event);
+      return;
+    }
     if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
       const delta = event.key === "ArrowDown" ? 1 : -1;
@@ -296,6 +532,131 @@
       event.preventDefault();
       slash = null;
     }
+  }
+
+  // --- Word-like caret placement and block exits ---------------------------
+
+  /** Collapsed caret at the start or the end of `el`. */
+  function putCaret(el: HTMLElement, atEnd: boolean): void {
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    range.collapse(!atEnd);
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+  }
+
+  /**
+   * Opens an empty paragraph after `block` (or in an empty flow) and puts the
+   * caret in it. Only ever on a user gesture, never while laying out sheets;
+   * left empty, it converts to nothing and the markdown is unchanged.
+   */
+  function openParagraphAfter(block: HTMLElement | undefined): void {
+    const paragraph = document.createElement("p");
+    paragraph.appendChild(document.createElement("br"));
+    if (block) block.after(paragraph);
+    else flow.appendChild(paragraph);
+    putCaret(paragraph, false);
+  }
+
+  /** Text of `range`, a `<br>` counted as the newline it shows. */
+  function rangeText(range: Range): string {
+    const contents = range.cloneContents();
+    for (const br of contents.querySelectorAll("br")) br.replaceWith("\n");
+    return contents.textContent ?? "";
+  }
+
+  /** The caret sits on an empty line of `pre` with nothing after it but the closing newline. */
+  function onEmptyLastLine(pre: HTMLElement, caret: Range): boolean {
+    const before = document.createRange();
+    before.setStart(pre, 0);
+    before.setEnd(caret.startContainer, caret.startOffset);
+    const after = document.createRange();
+    after.setStart(caret.endContainer, caret.endOffset);
+    after.setEnd(pre, pre.childNodes.length);
+    return rangeText(before).endsWith("\n") && /^\n?$/.test(rangeText(after));
+  }
+
+  /** Nothing of `block` after the caret goes below the caret's line. */
+  function onLastLine(block: HTMLElement, caret: Range): boolean {
+    const rest = document.createRange();
+    rest.setStart(caret.endContainer, caret.endOffset);
+    rest.setEnd(block, block.childNodes.length);
+    const line = caret.getClientRects()[0] ?? rest.getClientRects()[0];
+    if (!line) return true;
+    return Array.from(rest.getClientRects()).every((rect) => rect.top < line.bottom);
+  }
+
+  /**
+   * The only keys taken over besides the "/" menu: a second Enter on the empty
+   * last line of a code block, or Down on the last line of a document that
+   * doesn't end with a paragraph, opens a paragraph after the block.
+   */
+  function leaveBlock(event: KeyboardEvent): void {
+    if (!canEdit || event.isComposing || event.shiftKey || event.ctrlKey || event.altKey || event.metaKey) return;
+    if (event.key !== "Enter" && event.key !== "ArrowDown") return;
+    const block = caretBlock();
+    if (!block) return;
+    const caret = window.getSelection()!.getRangeAt(0);
+    if (event.key === "Enter") {
+      const start = caret.startContainer;
+      const pre = (start instanceof Element ? start : start.parentElement)?.closest("pre");
+      if (!pre || !onEmptyLastLine(pre, caret)) return;
+      event.preventDefault();
+      // Drops the empty line the first Enter made, on the native undo stack.
+      document.execCommand("delete");
+      openParagraphAfter(block);
+      return;
+    }
+    if (block !== flow.lastElementChild || block.tagName === "P" || !onLastLine(block, caret)) return;
+    event.preventDefault();
+    openParagraphAfter(block);
+  }
+
+  /**
+   * A press on a sheet but off the text — under it, between two blocks, in a
+   * margin, on a header or footer — puts the caret in the nearest block of that
+   * sheet; under the last block, at the end of the document, in a new paragraph
+   * if it doesn't end with one.
+   */
+  function handlePaperPointerDown(event: PointerEvent): void {
+    if (!paged || !canEdit || event.button !== 0) return;
+    const target = event.target as Node;
+    if (target !== flow && flow.contains(target)) return;
+    event.preventDefault();
+    flow.focus({ preventScroll: true });
+
+    const blocks = Array.from(flow.children) as HTMLElement[];
+    const last = blocks[blocks.length - 1];
+    const y = event.clientY;
+    if (!last || y > last.getBoundingClientRect().bottom) {
+      if (last?.tagName === "P") putCaret(last, true);
+      else openParagraphAfter(last);
+      return;
+    }
+
+    // Page breaks and Mermaid diagrams take no caret.
+    const editable = blocks.filter((el) => el.isContentEditable);
+    const sheet = Array.from(container.querySelectorAll(".sheet"), (el) => el.getBoundingClientRect()).find(
+      (rect) => rect.top <= y && y <= rect.bottom,
+    );
+    const onSheet = sheet
+      ? editable.filter((el) => {
+          const rect = el.getBoundingClientRect();
+          return rect.bottom > sheet.top && rect.top < sheet.bottom;
+        })
+      : [];
+    const distance = (el: HTMLElement): number => {
+      const rect = el.getBoundingClientRect();
+      return Math.max(rect.top - y, y - rect.bottom, 0);
+    };
+    let nearest: HTMLElement | undefined;
+    for (const el of onSheet.length > 0 ? onSheet : editable) {
+      if (!nearest || distance(el) < distance(nearest)) nearest = el;
+    }
+    if (!nearest) return;
+    const rect = nearest.getBoundingClientRect();
+    putCaret(nearest, y > (rect.top + rect.bottom) / 2);
   }
 
   // --- Quick toolbar --------------------------------------------------------
@@ -388,22 +749,48 @@
      inside {@html html} (the copy-code buttons); those remain independently
      keyboard-accessible, so this container isn't itself an interactive control. -->
 <svelte:document on:selectionchange={updateQuickBar} />
+<svelte:window on:beforeprint={handleBeforePrint} on:afterprint={() => pagesEl.replaceChildren()} />
 
 <!-- svelte-ignore a11y-click-events-have-key-events -->
 <!-- svelte-ignore a11y-no-static-element-interactions -->
 <div class="preview" class:paged bind:this={container} on:click={handlePreviewClick} on:scroll={updateQuickBar}>
-  <!-- svelte-ignore a11y-no-noninteractive-tabindex -->
+  <!-- svelte-ignore a11y-no-static-element-interactions -->
   <div
-    class="flow leef-content"
-    class:editing={canEdit}
-    bind:this={flow}
-    contenteditable={canEdit}
-    role={canEdit ? "textbox" : undefined}
-    aria-multiline={canEdit ? "true" : undefined}
-    tabindex={canEdit ? 0 : undefined}
-    on:input={handleInput}
-    on:keydown={handleFlowKeydown}
-  ></div>
+    class="paper"
+    style:zoom={paged ? scale : null}
+    style:min-height={lastSheet ? `${lastSheet.top + lastSheet.height}px` : null}
+    on:pointerdown={handlePaperPointerDown}
+  >
+    <!-- Painted behind the flow: headers and footers are never part of what is edited. -->
+    <div class="sheets" aria-hidden="true">
+      {#each sheets as sheet}
+        <div class="sheet" style:top="{sheet.top}px" style:height="{sheet.height}px">
+          {#if sheet.header}
+            <div class="page-header">{#each sheet.header as slot}<span>{slot}</span>{/each}</div>
+          {/if}
+          <div class="sheet-body"></div>
+          {#if sheet.footer}
+            <div class="page-footer">{#each sheet.footer as slot}<span>{slot}</span>{/each}</div>
+          {/if}
+        </div>
+      {/each}
+    </div>
+    <!-- svelte-ignore a11y-no-noninteractive-tabindex -->
+    <div
+      class="flow leef-content"
+      class:editing={canEdit}
+      bind:this={flow}
+      contenteditable={canEdit}
+      role={canEdit ? "textbox" : undefined}
+      aria-multiline={canEdit ? "true" : undefined}
+      tabindex={canEdit ? 0 : undefined}
+      on:input={handleInput}
+      on:keydown={handleFlowKeydown}
+      on:compositionstart={() => (composing = true)}
+      on:compositionend={handleCompositionEnd}
+      on:focusout={handleFocusOut}
+    ></div>
+  </div>
   <div class="pages" bind:this={pagesEl}></div>
 
   {#if slash}
@@ -439,6 +826,7 @@
 <style>
   .preview {
     position: relative;
+    box-sizing: border-box;
     height: 100%;
     overflow: auto;
     padding: 0 1rem;
@@ -448,7 +836,7 @@
   .flow.editing {
     outline: 1px dashed var(--leef-accent);
     outline-offset: 0.4rem;
-    border-radius: 2px;
+    border-radius: var(--leef-radius-sm);
     min-height: 4rem;
   }
   .flow.editing:focus {
@@ -465,7 +853,7 @@
     padding: 0.2rem;
     background: var(--leef-bg-elevated);
     border: 1px solid var(--leef-separator);
-    border-radius: 6px;
+    border-radius: var(--leef-radius-lg);
     box-shadow: var(--leef-shadow-popover);
   }
   .quick-bar button {
@@ -476,7 +864,7 @@
     height: 1.7rem;
     padding: 0;
     border: none;
-    border-radius: 4px;
+    border-radius: var(--leef-radius-sm);
     background: none;
     color: var(--leef-accent);
     cursor: pointer;
@@ -499,28 +887,62 @@
     }
   }
 
-  /* Page mode: the flow container becomes an offscreen measuring area of
-     exactly one text-column wide, and the visible content is the page boxes. */
+  /* Page mode: the flow stays the one editable surface, one text column wide,
+     laid over sheets painted behind it (see layoutSheets). */
   .preview.paged {
     padding: 1.5rem 0;
     background: var(--leef-page-canvas);
   }
-  .preview.paged .flow {
+  .preview.paged .paper {
+    position: relative;
+    width: var(--page-width, 210mm);
+    margin: 0 auto;
+  }
+  .sheets {
     position: absolute;
-    visibility: hidden;
+    inset: 0;
+    z-index: 0;
     pointer-events: none;
-    top: 0;
-    left: -10000px;
+    user-select: none;
+  }
+  .sheet {
+    position: absolute;
+    left: 0;
+    display: flex;
+    flex-direction: column;
+    box-sizing: border-box;
+    width: 100%;
+    padding: var(--page-margin, 20mm);
+    background: var(--leef-page-paper);
+    border: 1px solid var(--leef-separator);
+    box-shadow: var(--leef-shadow-page);
+  }
+  .sheet-body {
+    flex: 1;
+  }
+  .preview.paged .flow {
+    position: relative;
+    z-index: 1;
+    margin-left: var(--page-margin, 20mm);
     width: calc(var(--page-width, 210mm) - 2 * var(--page-margin, 20mm));
   }
+  .preview.paged .flow > :global(:first-child) {
+    margin-top: 0;
+  }
+  /* The sheets already frame the text. */
+  .preview.paged .flow.editing {
+    outline: none;
+  }
+  .preview.paged :global(.page-break) {
+    margin: 0;
+    border: none;
+  }
+  .preview.paged :global(.page-break)::after {
+    content: none;
+  }
+  /* Filled only while printing (page mode). */
   .pages {
     display: none;
-    flex-direction: column;
-    align-items: center;
-    gap: 1.5rem;
-  }
-  .preview.paged .pages {
-    display: flex;
   }
   .preview :global(.page) {
     display: flex;
@@ -603,8 +1025,10 @@
       padding: 0;
       background: none;
     }
+    .preview.paged .paper {
+      display: none;
+    }
     .preview.paged .pages {
-      gap: 0;
       display: block;
     }
     /* Outside page mode there are no page boxes to carry the margins, so the

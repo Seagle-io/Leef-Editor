@@ -12,11 +12,13 @@
 .leef-content h1 {
   font-size: var(--leef-text-28);
   font-weight: var(--leef-weight-bold);
+  letter-spacing: -0.03em;
   margin: 0 0 var(--leef-space-4);
 }
 .leef-content h2 {
   font-size: var(--leef-text-22);
   font-weight: var(--leef-weight-semibold);
+  letter-spacing: -0.02em;
   margin: var(--leef-space-8) 0 var(--leef-space-2);
 }
 .leef-content h3 {

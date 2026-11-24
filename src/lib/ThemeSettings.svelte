@@ -18,6 +18,7 @@
   ];
   const FONTS: Record<string, string> = { ui: "Système", serif: "Serif", mono: "Mono" };
   const ACCENTS: Record<AccentPreset, string> = {
+    seagle: "Seagle",
     blue: "Bleu",
     purple: "Violet",
     pink: "Rose",

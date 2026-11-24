@@ -402,14 +402,14 @@
     font-size: 0.85rem;
     padding: 0.3rem 0.7rem;
     border: 1px solid var(--border);
-    border-radius: 4px;
+    border-radius: var(--leef-radius-md);
     background: var(--button-bg);
     color: var(--toolbar-fg);
     font-weight: 500;
     cursor: pointer;
   }
   button:hover {
-    background: var(--button-hover-bg);
+    background: var(--leef-bg-hover);
   }
   button:disabled {
     opacity: 0.5;
@@ -425,8 +425,9 @@
   }
   .format-btn.active,
   button.active {
-    background: var(--toolbar-fg);
-    color: var(--toolbar-bg);
+    background: var(--leef-bg-pressed);
+    border-color: var(--leef-separator);
+    color: var(--leef-accent);
   }
   .menu-wrapper {
     position: relative;
@@ -443,8 +444,7 @@
     flex-direction: column;
     background: var(--bg);
     border: 1px solid var(--border);
-    border-radius: 4px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    border-radius: var(--leef-radius-md);
     z-index: 10;
     padding: 0.25rem;
   }
@@ -455,7 +455,7 @@
     text-align: left;
     background: none;
     border: none;
-    border-radius: 4px;
+    border-radius: var(--leef-radius-md);
     font-weight: 400;
     color: var(--fg);
     white-space: nowrap;
@@ -463,7 +463,7 @@
     text-overflow: ellipsis;
   }
   .menu-item:hover {
-    background: var(--button-hover-bg);
+    background: var(--leef-bg-hover);
   }
   .choice-item :global(.icon) {
     visibility: hidden;
@@ -475,7 +475,7 @@
     font-weight: 500;
     color: var(--toolbar-fg);
     border-bottom: 1px solid var(--border);
-    border-radius: 0;
+    border-radius: var(--leef-radius-sm);
     margin-bottom: 0.2rem;
     padding-bottom: 0.4rem;
   }
@@ -502,7 +502,7 @@
     width: 14rem;
     padding: 0.25rem 0.4rem;
     border: 1px solid var(--border);
-    border-radius: 4px;
+    border-radius: var(--leef-radius-md);
     background: var(--bg);
     color: var(--fg);
     font: inherit;
@@ -519,7 +519,7 @@
   }
   .band-help code {
     background: var(--code-bg);
-    border-radius: 3px;
+    border-radius: var(--leef-radius-sm);
     padding: 0 0.2rem;
   }
   .table-panel {
@@ -541,7 +541,7 @@
     height: 1.1rem;
     padding: 0;
     border: 1px solid var(--border);
-    border-radius: 2px;
+    border-radius: var(--leef-radius-sm);
     background: var(--bg);
   }
   .table-cell.on {
@@ -563,5 +563,9 @@
   .filename {
     font-size: 0.8rem;
     color: var(--muted-fg);
+  }
+  button:focus-visible {
+    outline: 2px solid var(--leef-accent);
+    outline-offset: -2px;
   }
 </style>

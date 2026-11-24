@@ -2,7 +2,7 @@ export type Result<T, E> = { ok: true; value: T } | { ok: false; error: E };
 
 export type ThemeBase = "light" | "dark" | "auto";
 export type Scheme = "light" | "dark";
-export type AccentPreset = "blue" | "purple" | "pink" | "red" | "orange" | "green" | "graphite";
+export type AccentPreset = "seagle" | "blue" | "purple" | "pink" | "red" | "orange" | "green" | "graphite";
 export type ColorToken =
   | "bg-window" | "bg-sidebar" | "bg-toolbar" | "bg-content" | "bg-elevated" | "bg-control" | "bg-code"
   | "separator" | "text" | "text-secondary" | "text-tertiary" | "danger" | "danger-bg" | "page-paper"
@@ -37,7 +37,7 @@ export interface ThemeFile {
   themes: Theme[]; // utilisateur
 }
 
-export const ACCENT_PRESETS: readonly AccentPreset[] = ["blue", "purple", "pink", "red", "orange", "green", "graphite"];
+export const ACCENT_PRESETS: readonly AccentPreset[] = ["seagle", "blue", "purple", "pink", "red", "orange", "green", "graphite"];
 export const FONT_PRESETS: readonly string[] = ["ui", "serif", "mono"];
 
 export const TOKEN_NAMES: readonly string[] = [
@@ -55,7 +55,7 @@ export const AUTO_ID = "leef-auto";
 
 function builtin(id: string, name: string, base: ThemeBase, patch: Partial<Theme> = {}): Theme {
   return {
-    version: 1, id, name, builtin: true, parent: id, base, accent: "blue", contentFont: "ui", editorFont: "mono",
+    version: 1, id, name, builtin: true, parent: id, base, accent: "seagle", contentFont: "ui", editorFont: "mono",
     size: 15, editorSize: 14, lineHeight: 1.6, lineWidth: 68, overrides: {}, ...patch,
   };
 }

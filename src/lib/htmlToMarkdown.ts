@@ -30,6 +30,27 @@ async function getService(): Promise<TurndownServiceType> {
       replacement: () => "",
     });
 
+    // Turndown pads markers (`-   un`, `1.  a`): write `- ` and `N. ` as the
+    // author did, so the first edit in the preview does not rewrite every list.
+    // Continuation lines are indented by the width of the marker.
+    service.addRule("listItem", {
+      filter: "li",
+      replacement: (content, node, options) => {
+        const parent = node.parentNode as HTMLElement;
+        let prefix = `${options.bulletListMarker} `;
+        if (parent.nodeName === "OL") {
+          const start = parent.getAttribute("start");
+          const index = Array.prototype.indexOf.call(parent.children, node);
+          prefix = `${start ? Number(start) + index : index + 1}. `;
+        }
+        const body = content
+          .replace(/^\n+/, "")
+          .replace(/\n+$/, "\n")
+          .replace(/\n/gm, `\n${" ".repeat(prefix.length)}`);
+        return prefix + body + (node.nextSibling && !/\n$/.test(body) ? "\n" : "");
+      },
+    });
+
     // A rendered Mermaid block is an <svg>; the original source is kept in
     // `data-src` by the renderer.
     service.addRule("mermaid", {
@@ -61,7 +82,9 @@ async function getService(): Promise<TurndownServiceType> {
       replacement: (_content, node) => {
         const el = node as HTMLElement;
         const lang = el.getAttribute("data-lang") ?? "";
-        const code = el.querySelector("code")?.textContent ?? "";
+        const codeEl = el.querySelector("code")?.cloneNode(true) as HTMLElement | undefined;
+        Array.from(codeEl?.querySelectorAll("br") ?? []).forEach((br) => br.replaceWith("\n"));
+        const code = codeEl?.textContent ?? "";
         return `\n\n\`\`\`${lang}\n${code.replace(/\n$/, "")}\n\`\`\`\n\n`;
       },
     });

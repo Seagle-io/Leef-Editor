@@ -300,7 +300,7 @@ describe("import JSON invalide → erreur par champ", () => {
 
 describe("parseTheme — entrées hostiles", () => {
   it("vide : {} → défauts de leef-auto ; non-objets refusés", () => {
-    expect(parseTheme({})).toMatchObject({ ok: true, value: { base: "auto", accent: "blue", size: 15, editorSize: 14, lineHeight: 1.6, lineWidth: 68, editorFont: "mono" } });
+    expect(parseTheme({})).toMatchObject({ ok: true, value: { base: "auto", accent: "seagle", size: 15, editorSize: 14, lineHeight: 1.6, lineWidth: 68, editorFont: "mono" } });
     for (const u of [null, undefined, 42, "x", []]) expect(parseTheme(u)).toMatchObject({ ok: false, error: { code: "invalid-field" } });
   });
 
@@ -440,7 +440,7 @@ describe("applyTheme / themeVariables", () => {
     store.selectTheme("leef-light");
     expect(root.style.getPropertyValue("--leef-bg-content")).toBe("");
     expect(root.style.getPropertyValue("--leef-accent")).toBe("");
-    expect(root.dataset.accent).toBe("blue");
+    expect(root.dataset.accent).toBe("seagle");
   });
 });
 

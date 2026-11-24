@@ -7,7 +7,8 @@
   import { markdown } from "@codemirror/lang-markdown";
   import { languages } from "@codemirror/language-data";
   import { toggleBold, toggleItalic, toggleStrikethrough, toggleInlineCode, insertLink } from "./markdownCommands";
-  import { lightTheme } from "./lightHighlight";
+  import { lightTheme, darkTheme } from "./lightHighlight";
+  import { minimalChange } from "./textDiff";
   import Icon from "./icons/Icon.svelte";
   import SlashMenu from "./SlashMenu.svelte";
   import { filterSlashItems, type SlashItem } from "./slashItems";
@@ -24,11 +25,9 @@
 
     let extension: Extension;
     switch (id) {
-      case "dark": {
-        const { oneDark } = await import("@codemirror/theme-one-dark");
-        extension = oneDark;
+      case "dark":
+        extension = darkTheme;
         break;
-      }
       case "dracula": {
         const { dracula } = await import("thememirror");
         extension = dracula;
@@ -219,7 +218,10 @@
         }
       }),
       EditorView.domEventHandlers({ paste: pasteTable }),
-      EditorView.theme({ "&": { height: "100%", fontSize: "14px" } }),
+      EditorView.theme({
+        "&": { height: "100%", fontSize: "var(--leef-editor-size)" },
+        ".cm-content, .cm-gutters": { fontFamily: "var(--leef-font-editor)" },
+      }),
       themeCompartment.of([]),
     ];
 
@@ -261,10 +263,11 @@
 
   $: if (view) applyTheme(themeId);
 
-  $: if (view && value !== view.state.doc.toString()) {
-    view.dispatch({
-      changes: { from: 0, to: view.state.doc.length, insert: value },
-    });
+  // Only the span that differs is replaced: the caret and scroll of the editor
+  // are mapped through the change instead of being reset with the document.
+  $: if (view) {
+    const change = minimalChange(view.state.doc.toString(), value);
+    if (change) view.dispatch({ changes: change });
   }
 
   onDestroy(() => {
@@ -341,7 +344,7 @@
     padding: 0.3rem;
     background: var(--bg);
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: var(--leef-radius-lg);
     box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
     transform: translate(-8px, -8px);
   }
@@ -352,7 +355,7 @@
     align-items: center;
     justify-content: center;
     border: none;
-    border-radius: 4px;
+    border-radius: var(--leef-radius-sm);
     background: none;
     color: var(--toolbar-fg);
     cursor: pointer;

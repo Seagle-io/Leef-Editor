@@ -420,6 +420,7 @@ console.log("hello gmd");
         <Preview
           bind:this={previewRef}
           {html}
+          source={content}
           dark={$theme === "dark" || $theme === "dracula"}
           paged={$pageMode}
           formatId={$pageFormat}
@@ -528,7 +529,7 @@ console.log("hello gmd");
     width: 1.8rem;
     height: 1.8rem;
     border: 1px solid var(--leef-separator);
-    border-radius: 50%;
+    border-radius: var(--leef-radius-full);
     background: var(--leef-bg-control);
     color: var(--leef-accent);
     cursor: pointer;

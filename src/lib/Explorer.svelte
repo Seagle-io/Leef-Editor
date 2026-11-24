@@ -70,7 +70,7 @@
     display: inline-flex;
     padding: 0.2rem;
     border: none;
-    border-radius: 4px;
+    border-radius: var(--leef-radius-md);
     background: none;
     color: var(--muted-fg);
     cursor: pointer;
@@ -99,7 +99,7 @@
     margin: 0.2rem 0.5rem;
     padding: 0.35rem 0.6rem;
     border: 1px solid var(--border);
-    border-radius: 4px;
+    border-radius: var(--leef-radius-md);
     background: var(--button-bg);
     color: var(--toolbar-fg);
     font-size: 0.8rem;
@@ -107,5 +107,10 @@
   }
   .open-folder:hover {
     background: var(--button-hover-bg);
+  }
+  .explorer-head button:focus-visible,
+  .open-folder:focus-visible {
+    outline: 2px solid var(--leef-accent);
+    outline-offset: -2px;
   }
 </style>

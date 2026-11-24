@@ -305,7 +305,7 @@
   }
   mark {
     padding: 0 2px;
-    border-radius: 2px;
+    border-radius: var(--leef-radius-sm);
     background: var(--leef-text-selection);
     color: var(--leef-text);
   }

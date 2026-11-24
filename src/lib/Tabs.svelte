@@ -99,14 +99,14 @@
     padding: 0.35rem 0.4rem 0.35rem 0.7rem;
     border: 1px solid transparent;
     border-bottom: none;
-    border-radius: 5px 5px 0 0;
+    border-radius: var(--leef-radius-md) var(--leef-radius-md) 0 0;
     font-size: 0.8rem;
     color: var(--muted-fg);
     cursor: pointer;
     user-select: none;
   }
   .tab:hover {
-    background: var(--button-hover-bg);
+    background: var(--leef-bg-hover);
   }
   .tab.active {
     background: var(--bg);
@@ -140,7 +140,7 @@
     height: 1.1rem;
     padding: 0;
     border: none;
-    border-radius: 3px;
+    border-radius: var(--leef-radius-sm);
     background: none;
     color: inherit;
     opacity: 0.5;
@@ -157,7 +157,7 @@
     margin-left: 0.2rem;
     padding: 0.25rem 0.4rem;
     border: none;
-    border-radius: 4px;
+    border-radius: var(--leef-radius-md);
     background: none;
     color: var(--muted-fg);
     cursor: pointer;
@@ -170,5 +170,11 @@
     .tabs {
       display: none !important;
     }
+  }
+  .tab:focus-visible,
+  .tab-close:focus-visible,
+  .tab-new:focus-visible {
+    outline: 2px solid var(--leef-accent);
+    outline-offset: -2px;
   }
 </style>

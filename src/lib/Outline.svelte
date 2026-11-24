@@ -44,7 +44,7 @@
     text-align: left;
     background: none;
     border: none;
-    border-radius: 4px;
+    border-radius: var(--leef-radius-md);
     padding-top: 0.3rem;
     padding-bottom: 0.3rem;
     padding-right: 0.5rem;
